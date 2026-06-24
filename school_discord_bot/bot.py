@@ -65,7 +65,7 @@ class SchoolDiscordBot(commands.Bot):
 
         await self.add_cog(admin_cog)
         await self.add_cog(announcements_cog)
-    await self.tree.set_translator(CommandTranslator())
+        await self.tree.set_translator(CommandTranslator())
         self.tree.copy_global_to(guild=discord.Object(id=self.settings.guild_id))
         await self.tree.sync(guild=discord.Object(id=self.settings.guild_id))
 
