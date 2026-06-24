@@ -104,6 +104,28 @@ def test_build_embed_truncates_long_field_values() -> None:
         assert len(field.value) <= 1024
 
 
+def test_build_embed_does_not_break_attachment_markdown_when_url_is_too_long() -> None:
+    poster = ForumPoster(tag_mapper=FakeTagMapper(), dry_run=False)
+    long_url = "https://example.com/download?token=" + ("a" * 1400)
+    announcement = Announcement(
+        source_id="3a",
+        source_hash="hash-3a",
+        source_url="https://example.com/news/3a",
+        title="測試附件過長連結",
+        date="2026/06/24",
+        category="一般公告",
+        unit="教學組",
+        excerpt="摘要",
+    )
+    announcement.attachments.append(type("Attachment", (), {"name": "報名簡章.pdf", "url": long_url})())
+
+    embed = poster.build_embed(announcement)
+    attachment_field = next(field for field in embed.fields if field.name == "附件")
+
+    assert attachment_field.value == "- 報名簡章.pdf（連結過長，請見原始公告）"
+    assert len(attachment_field.value) <= 1024
+
+
 def test_build_embed_preserves_newlines_timestamp_and_image() -> None:
     poster = ForumPoster(tag_mapper=FakeTagMapper(), dry_run=False)
     announcement = Announcement(

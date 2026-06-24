@@ -139,17 +139,13 @@ class ForumPoster:
         if announcement.attachments:
             embed.add_field(
                 name="附件",
-                value=self._format_field_value(
-                    self._format_links(announcement.attachments, limit=5)
-                ),
+                value=self._format_link_field_value(announcement.attachments, limit=5),
                 inline=False,
             )
         if announcement.external_links:
             embed.add_field(
                 name="相關連結",
-                value=self._format_field_value(
-                    self._format_links(announcement.external_links, limit=5)
-                ),
+                value=self._format_link_field_value(announcement.external_links, limit=5),
                 inline=False,
             )
         if announcement.important_dates:
@@ -178,6 +174,51 @@ class ForumPoster:
             display_name = self._normalize_link_display_name(name=name, url=url)
             lines.append(f"- [{display_name}]({url})")
         return "\n".join(lines) if lines else "無"
+
+    def _format_link_field_value(self, links: Iterable[object], *, limit: int) -> str:
+        lines: list[str] = []
+        omitted = 0
+
+        for index, link in enumerate(links):
+            if index >= limit:
+                omitted += 1
+                continue
+
+            line = self._build_link_line(link)
+            if not line:
+                continue
+
+            candidate = "\n".join([*lines, line]) if lines else line
+            if len(candidate) <= self.FIELD_VALUE_LIMIT:
+                lines.append(line)
+                continue
+
+            omitted += 1
+
+        if omitted:
+            omission_line = f"- 其餘 {omitted} 項請見原始公告"
+            candidate = "\n".join([*lines, omission_line]) if lines else omission_line
+            if len(candidate) <= self.FIELD_VALUE_LIMIT:
+                lines.append(omission_line)
+
+        return "\n".join(lines) if lines else "無"
+
+    def _build_link_line(self, link: object) -> str:
+        name = normalize_text(getattr(link, "name", "") or getattr(link, "label", "連結"))
+        url = normalize_text(getattr(link, "url", ""))
+        if not url:
+            return ""
+
+        display_name = self._normalize_link_display_name(name=name, url=url)
+        markdown_line = f"- [{display_name}]({url})"
+        if len(markdown_line) <= self.FIELD_VALUE_LIMIT:
+            return markdown_line
+
+        fallback_line = f"- {display_name}（連結過長，請見原始公告）"
+        if len(fallback_line) <= self.FIELD_VALUE_LIMIT:
+            return fallback_line
+
+        return self._truncate(fallback_line, limit=self.FIELD_VALUE_LIMIT)
 
     def _truncate(self, value: str, *, limit: int) -> str:
         if len(value) <= limit:
