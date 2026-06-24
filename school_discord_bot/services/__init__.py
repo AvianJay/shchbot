@@ -1,0 +1,1 @@
+"""Service layer for the school Discord bot."""
