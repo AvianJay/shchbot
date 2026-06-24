@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timedelta, timezone
 import logging
 from typing import Iterable
 from urllib.parse import urljoin, urlparse
@@ -26,6 +26,7 @@ class ForumPoster:
     """Create Discord forum posts for school announcements with safe defaults."""
 
     FIELD_VALUE_LIMIT = 1024
+    SCHOOL_TIMEZONE = timezone(timedelta(hours=8), name="Asia/Taipei")
 
     def __init__(
         self,
@@ -240,7 +241,7 @@ class ForumPoster:
             for fmt in formats:
                 try:
                     parsed = datetime.strptime(candidate, fmt)
-                    return parsed.replace(tzinfo=UTC)
+                    return parsed.replace(tzinfo=self.SCHOOL_TIMEZONE)
                 except ValueError:
                     continue
         return None

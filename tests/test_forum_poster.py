@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import UTC
+from datetime import timedelta, timezone
 
 from discord.utils import MISSING
 
 from school_discord_bot.models.announcement import Announcement
 from school_discord_bot.services.forum_poster import ForumPoster
+
+
+TAIPEI_TZ = timezone(timedelta(hours=8), name="Asia/Taipei")
 
 
 @dataclass
@@ -151,4 +154,4 @@ def test_build_embed_formats_related_links_as_bullets_with_domain_label() -> Non
 def announcement_timestamp(year: int, month: int, day: int, hour: int, minute: int, second: int):
     from datetime import datetime
 
-    return datetime(year, month, day, hour, minute, second, tzinfo=UTC)
+    return datetime(year, month, day, hour, minute, second, tzinfo=TAIPEI_TZ)
