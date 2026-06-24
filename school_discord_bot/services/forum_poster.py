@@ -33,10 +33,14 @@ class ForumPoster:
         *,
         tag_mapper: TagMapper,
         dry_run: bool,
+        allowed_mentions: discord.AllowedMentions | None = None,
+        announcement_mention_prefix: str = "",
         logger: logging.Logger | None = None,
     ) -> None:
         self.tag_mapper = tag_mapper
         self.dry_run = dry_run
+        self.allowed_mentions = allowed_mentions or discord.AllowedMentions.none()
+        self.announcement_mention_prefix = announcement_mention_prefix.strip()
         self.logger = logger or logging.getLogger(__name__)
 
     async def validate_forum_channel(
@@ -86,7 +90,7 @@ class ForumPoster:
             "name": title,
             "content": content,
             "embed": embed,
-            "allowed_mentions": discord.AllowedMentions.none(),
+            "allowed_mentions": self.allowed_mentions,
             "applied_tags": applied_tags if applied_tags else MISSING,
         }
         try:
@@ -116,9 +120,14 @@ class ForumPoster:
         return self._truncate(title or fallback_title, limit=100)
 
     def build_initial_message(self, announcement: Announcement) -> str:
+        lines: list[str] = []
+        if self.announcement_mention_prefix:
+            lines.append(self.announcement_mention_prefix)
         if announcement.source_url:
-            return f"原始公告：{announcement.source_url}"
-        return "原始公告連結：無公開連結"
+            lines.append(f"原始公告：{announcement.source_url}")
+        else:
+            lines.append("原始公告連結：無公開連結")
+        return "\n".join(lines)
 
     def build_embed(self, announcement: Announcement) -> discord.Embed:
         description = self._build_description(announcement)

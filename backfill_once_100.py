@@ -31,7 +31,12 @@ async def main() -> None:
             allow_insecure_ssl_fallback=settings.allow_insecure_school_ssl_fallback,
         )
         tag_mapper = TagMapper(database)
-        forum_poster = ForumPoster(tag_mapper=tag_mapper, dry_run=False)
+        forum_poster = ForumPoster(
+            tag_mapper=tag_mapper,
+            dry_run=False,
+            allowed_mentions=settings.announcement_allowed_mentions,
+            announcement_mention_prefix=settings.announcement_mention_prefix,
+        )
 
         @bot.event
         async def on_ready() -> None:

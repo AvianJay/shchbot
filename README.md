@@ -74,9 +74,18 @@ SCHOOL_NEWS_WIDGET_URL=https://www.dali.tc.edu.tw/ischool/widget/site_news/main2
 DATABASE_PATH=data/bot.sqlite3
 DRY_RUN=false
 ALLOW_INSECURE_SCHOOL_SSL_FALLBACK=true
+ANNOUNCEMENT_MENTION_EVERYONE=false
+ANNOUNCEMENT_MENTION_USERS=false
+ANNOUNCEMENT_MENTION_ROLE_IDS=
+ANNOUNCEMENT_MENTION_TEXT=
 ```
 
 `ALLOW_INSECURE_SCHOOL_SSL_FALLBACK` 是給這個學校站台憑證相容性問題用的受控 fallback。當 Python/OpenSSL 無法驗證學校網站憑證時，bot 只會對同一個學校主機重試一次不驗證的 HTTPS 連線。
+
+`ANNOUNCEMENT_MENTION_EVERYONE` 控制公告貼文是否允許 `@everyone` / `@here`。
+`ANNOUNCEMENT_MENTION_USERS` 控制公告貼文是否允許直接 mention 使用者。
+`ANNOUNCEMENT_MENTION_ROLE_IDS` 可填逗號分隔的角色 ID 名單，只允許這些角色在公告初始訊息中被 mention。
+`ANNOUNCEMENT_MENTION_TEXT` 可填自訂公告前綴，例如 `@everyone`、`<@&1234567890>` 或「新公告來了」。若留空，bot 會自動用 `ANNOUNCEMENT_MENTION_EVERYONE` 與 `ANNOUNCEMENT_MENTION_ROLE_IDS` 產生 mention 前綴。
 
 注意：不要提交 .env，也不要在 log 中輸出 token。
 

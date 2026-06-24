@@ -18,7 +18,12 @@ async def main() -> None:
     await database.initialize()
 
     client = discord.Client(intents=discord.Intents.default())
-    forum_poster = ForumPoster(tag_mapper=TagMapper(database), dry_run=True)
+    forum_poster = ForumPoster(
+        tag_mapper=TagMapper(database),
+        dry_run=True,
+        allowed_mentions=settings.announcement_allowed_mentions,
+        announcement_mention_prefix=settings.announcement_mention_prefix,
+    )
     try:
         await client.login(settings.discord_token)
         forum = await forum_poster.validate_forum_channel(

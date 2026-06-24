@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 import os
 
+import discord
+
 from dotenv import load_dotenv
 
 
@@ -11,6 +13,19 @@ def _parse_bool(value: str | None, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_csv_ints(value: str | None) -> list[int]:
+    if value is None:
+        return []
+
+    ids: list[int] = []
+    for chunk in value.split(","):
+        text = chunk.strip()
+        if not text:
+            continue
+        ids.append(int(text))
+    return ids
 
 
 @dataclass(slots=True)
@@ -24,6 +39,8 @@ class Settings:
     database_path: Path
     dry_run: bool
     allow_insecure_school_ssl_fallback: bool
+    announcement_allowed_mentions: discord.AllowedMentions
+    announcement_mention_prefix: str
     http_timeout_seconds: int = 20
     max_backfill_count: int = 30
     max_preview_count: int = 10
@@ -52,6 +69,22 @@ class Settings:
             raise ValueError("POLL_INTERVAL_SECONDS must be at least 60 seconds")
 
         database_path = Path(os.getenv("DATABASE_PATH", "data/bot.sqlite3"))
+        mention_everyone = _parse_bool(os.getenv("ANNOUNCEMENT_MENTION_EVERYONE"), default=False)
+        mention_users = _parse_bool(os.getenv("ANNOUNCEMENT_MENTION_USERS"), default=False)
+        mention_role_ids = _parse_csv_ints(os.getenv("ANNOUNCEMENT_MENTION_ROLE_IDS"))
+        announcement_mention_prefix = (os.getenv("ANNOUNCEMENT_MENTION_TEXT") or "").strip()
+        if not announcement_mention_prefix:
+            mention_chunks: list[str] = []
+            if mention_everyone:
+                mention_chunks.append("@everyone")
+            mention_chunks.extend(f"<@&{role_id}>" for role_id in mention_role_ids)
+            announcement_mention_prefix = " ".join(mention_chunks)
+        announcement_allowed_mentions = discord.AllowedMentions(
+            everyone=mention_everyone,
+            users=mention_users,
+            roles=mention_role_ids if mention_role_ids else False,
+            replied_user=False,
+        )
 
         return cls(
             discord_token=required["DISCORD_TOKEN"] or "",
@@ -71,6 +104,8 @@ class Settings:
                 os.getenv("ALLOW_INSECURE_SCHOOL_SSL_FALLBACK"),
                 default=True,
             ),
+            announcement_allowed_mentions=announcement_allowed_mentions,
+            announcement_mention_prefix=announcement_mention_prefix,
         )
 
     def resolve_database_path(self, project_root: Path) -> Path:

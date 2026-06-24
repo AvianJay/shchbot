@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import dataclass
 from datetime import timedelta, timezone
 
+import discord
 from discord.utils import MISSING
 
 from school_discord_bot.models.announcement import Announcement
@@ -64,6 +65,35 @@ def test_post_announcement_omits_none_applied_tags() -> None:
     assert forum.calls
     assert forum.calls[0]["applied_tags"] is MISSING
     assert forum.calls[0]["name"] == "測試公告"
+    assert forum.calls[0]["allowed_mentions"].everyone is False
+    assert forum.calls[0]["allowed_mentions"].users is False
+    assert forum.calls[0]["allowed_mentions"].roles is False
+
+
+def test_post_announcement_uses_configured_allowed_mentions() -> None:
+    allowed_mentions = discord.AllowedMentions(everyone=False, users=False, roles=False, replied_user=False)
+    poster = ForumPoster(
+        tag_mapper=FakeTagMapper(),
+        dry_run=False,
+        allowed_mentions=allowed_mentions,
+        announcement_mention_prefix="<@&123>",
+    )
+    forum = FakeForum()
+    announcement = Announcement(
+        source_id="1b",
+        source_hash="hash-1b",
+        source_url="https://example.com/news/1b",
+        title="測試 mention 設定",
+        date="2026/06/24",
+        category="一般公告",
+        unit="教學組",
+        excerpt="摘要",
+    )
+
+    asyncio.run(poster.post_announcement(forum=forum, announcement=announcement))
+
+    assert forum.calls[0]["allowed_mentions"] is allowed_mentions
+    assert forum.calls[0]["content"] == "<@&123>\n原始公告：https://example.com/news/1b"
 
 
 def test_build_thread_title_uses_plain_title_without_category_prefix() -> None:
