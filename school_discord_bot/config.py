@@ -72,6 +72,7 @@ class Settings:
         mention_everyone = _parse_bool(os.getenv("ANNOUNCEMENT_MENTION_EVERYONE"), default=False)
         mention_users = _parse_bool(os.getenv("ANNOUNCEMENT_MENTION_USERS"), default=False)
         mention_role_ids = _parse_csv_ints(os.getenv("ANNOUNCEMENT_MENTION_ROLE_IDS"))
+        mention_roles = [discord.Object(id=role_id) for role_id in mention_role_ids]
         announcement_mention_prefix = (os.getenv("ANNOUNCEMENT_MENTION_TEXT") or "").strip()
         if not announcement_mention_prefix:
             mention_chunks: list[str] = []
@@ -82,7 +83,7 @@ class Settings:
         announcement_allowed_mentions = discord.AllowedMentions(
             everyone=mention_everyone,
             users=mention_users,
-            roles=mention_role_ids if mention_role_ids else False,
+            roles=mention_roles if mention_roles else False,
             replied_user=False,
         )
 
