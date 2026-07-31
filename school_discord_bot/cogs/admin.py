@@ -72,11 +72,26 @@ class AdminCog(
             ephemeral=True,
         )
 
+    @app_commands.command(name="send_links", description="將學校常用公開連結發送到頻道")
+    @admin_only()
+    async def school_send_links(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        channel = interaction.channel
+        if not channel:
+            await interaction.followup.send("無法取得頻道資訊", ephemeral=True)
+            return
+
+        embed = build_school_links_embed()
+        view = SchoolLinksView()
+        await channel.send(embed=embed, view=view)
+        await interaction.followup.send("已將學校常用公開連結發送到頻道", ephemeral=True)
+
     @app_commands.command(name="help", description="顯示可用指令說明")
     async def school_help(self, interaction: discord.Interaction) -> None:
         embed = discord.Embed(title="School Bot 指令說明", color=discord.Color.orange())
         embed.add_field(name="/school setup", value="檢查頻道、權限、資料庫與爬蟲狀態", inline=False)
         embed.add_field(name="/school links", value="顯示學校常用公開入口", inline=False)
+        embed.add_field(name="/school send_links", value="將學校常用公開連結發送到頻道", inline=False)
         embed.add_field(name="/news check", value="立即同步最新公告", inline=False)
         embed.add_field(name="/news backfill", value="補發 bot 啟用前的公告", inline=False)
         embed.add_field(name="/news status", value="檢查同步狀態", inline=False)
