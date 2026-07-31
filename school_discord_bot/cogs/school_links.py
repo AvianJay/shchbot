@@ -4,7 +4,7 @@ import discord
 
 
 PUBLIC_SCHOOL_LINKS: tuple[tuple[str, str], ...] = (
-    ("成績查詢", "https://www.dali.tc.edu.tw/home?cid=1521"),
+    ("成績查詢", "https://hschool-mlife.k12ea.gov.tw/Login.action?schNo=060322"),
     ("班級課程查詢", "https://campus.dali.tc.edu.tw/"),
     ("學校行事曆", "https://www.dali.tc.edu.tw/ischool/publish_page/49/?cid=1307"),
     ("學習歷程上傳", "https://epf-mlife.k12ea.gov.tw/Portal.do"),
