@@ -33,6 +33,23 @@ def test_parse_widget_config_and_table_rows() -> None:
     assert announcements[0].source_url == build_public_news_url(config.public_view_base_url, "19907")
 
 
+def test_parse_widget_config_unescapes_javascript_root_path() -> None:
+    html = (
+        'var g_root_path = "https:\\/\\/www.dali.tc.edu.tw\\/ischool\\/";'
+        'var g_unique_id = "widget-id";'
+    )
+
+    config = parse_widget_config(html, WIDGET_URL)
+
+    assert config.root_path == "https://www.dali.tc.edu.tw/ischool/"
+    assert config.public_view_base_url == (
+        "https://www.dali.tc.edu.tw/ischool/public/news_view/show.php"
+    )
+    assert build_public_news_url(config.public_view_base_url, "20065") == (
+        "https://www.dali.tc.edu.tw/ischool/public/news_view/show.php?nid=20065"
+    )
+
+
 def test_parse_list_json_and_detail_json() -> None:
     config = parse_widget_config(
         (FIXTURES_DIR / "sample_news_page.html").read_text(encoding="utf-8"),

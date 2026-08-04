@@ -60,7 +60,11 @@ def parse_widget_config(html: str, widget_url: str) -> WidgetConfig:
     root_path_match = _ROOT_PATH_PATTERN.search(html)
     uid_match = _UID_PATTERN.search(html)
 
-    root_path = root_path_match.group(1) if root_path_match else f"{parsed_widget.scheme}://{parsed_widget.netloc}/ischool/"
+    root_path = (
+        root_path_match.group(1).replace("\\/", "/")
+        if root_path_match
+        else f"{parsed_widget.scheme}://{parsed_widget.netloc}/ischool/"
+    )
     uid = uid_match.group(1) if uid_match else query_uid
     widget_base_url = widget_url.rsplit("/", 1)[0] + "/"
 
