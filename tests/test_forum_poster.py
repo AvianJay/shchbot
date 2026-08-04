@@ -6,12 +6,21 @@ from datetime import timedelta, timezone
 
 import discord
 from discord.utils import MISSING
+import pytest
 
 from school_discord_bot.models.announcement import Announcement
 from school_discord_bot.services.forum_poster import ForumPoster
 
 
 TAIPEI_TZ = timezone(timedelta(hours=8), name="Asia/Taipei")
+
+
+@dataclass
+class FakeResponse:
+    """Minimal stand-in for aiohttp.ClientResponse, enough for HTTPException."""
+
+    status: int = 400
+    reason: str = "Bad Request"
 
 
 @dataclass
@@ -207,3 +216,160 @@ def announcement_timestamp(year: int, month: int, day: int, hour: int, minute: i
     from datetime import datetime
 
     return datetime(year, month, day, hour, minute, second, tzinfo=TAIPEI_TZ)
+
+
+def test_build_embed_repairs_escaped_source_url() -> None:
+    """Regression: an escaped source_url made Discord reject embeds.0.url."""
+    poster = ForumPoster(tag_mapper=FakeTagMapper(), dry_run=False)
+    announcement = Announcement(
+        source_id="20065",
+        source_hash="hash-20065",
+        source_url="https:\\/\\/www.dali.tc.edu.tw\\/ischool\\/public/news_view/show.php?nid=20065",
+        title="學科能力競賽校內初賽報名",
+        date="2026/08/04",
+        category="競賽資訊",
+        unit="設備組",
+        excerpt="摘要",
+    )
+
+    embed = poster.build_embed(announcement)
+
+    assert embed.url == "https://www.dali.tc.edu.tw/ischool/public/news_view/show.php?nid=20065"
+    assert "\\" not in poster.build_initial_message(announcement)
+
+
+def test_build_embed_omits_url_when_it_cannot_be_repaired() -> None:
+    poster = ForumPoster(tag_mapper=FakeTagMapper(), dry_run=False)
+    announcement = Announcement(
+        source_id="6",
+        source_hash="hash-6",
+        source_url="/ischool/public/news_view/show.php?nid=6",
+        title="沒有可用連結",
+        date="2026/08/04",
+        category="一般公告",
+        unit="教學組",
+        excerpt="摘要",
+    )
+
+    embed = poster.build_embed(announcement)
+
+    assert "url" not in embed.to_dict()
+    assert poster.build_initial_message(announcement) == "原始公告連結：無公開連結"
+
+
+def test_build_embed_repairs_relative_image_url_against_escaped_root_path() -> None:
+    poster = ForumPoster(tag_mapper=FakeTagMapper(), dry_run=False)
+    announcement = Announcement(
+        source_id="7",
+        source_hash="hash-7",
+        source_url="https://www.dali.tc.edu.tw/ischool/public/news_view/show.php?nid=7",
+        title="相對路徑圖片",
+        date="2026/08/04",
+        category="一般公告",
+        unit="教學組",
+        content_html='<p><img src="wr/file/2/7/poster.png"></p>',
+        raw_payload={"root_path": "https:\\/\\/www.dali.tc.edu.tw\\/ischool\\/"},
+    )
+
+    embed = poster.build_embed(announcement)
+
+    assert embed.image.url == "https://www.dali.tc.edu.tw/ischool/wr/file/2/7/poster.png"
+
+
+def test_build_embed_skips_link_entries_with_unusable_urls() -> None:
+    poster = ForumPoster(tag_mapper=FakeTagMapper(), dry_run=False)
+    announcement = Announcement(
+        source_id="8",
+        source_hash="hash-8",
+        source_url="https://example.com/news/8",
+        title="連結過濾",
+        date="2026/08/04",
+        category="一般公告",
+        unit="教學組",
+    )
+    announcement.external_links.extend(
+        [
+            type("Link", (), {"label": "壞連結", "url": "/relative/only"})(),
+            type("Link", (), {"label": "報名表", "url": "https://bar.example.com/form"})(),
+        ]
+    )
+
+    embed = poster.build_embed(announcement)
+    related_field = next(field for field in embed.fields if field.name == "相關連結")
+
+    assert related_field.value == "- [報名表](https://bar.example.com/form)"
+
+
+def test_post_announcement_does_not_retry_non_tag_errors() -> None:
+    """A malformed-embed 400 fails identically on retry, so it must not be retried."""
+
+    class RejectingForum(FakeForum):
+        def __init__(self) -> None:
+            super().__init__()
+            self.attempts = 0
+
+        async def create_thread(self, **kwargs: object) -> FakeThreadResult:
+            self.attempts += 1
+            raise discord.HTTPException(
+                FakeResponse(),
+                {"code": 50035, "message": "Invalid Form Body", "errors": {}},
+            )
+
+    poster = ForumPoster(tag_mapper=FakeTagMapper(), dry_run=False)
+    forum = RejectingForum()
+    announcement = Announcement(
+        source_id="9",
+        source_hash="hash-9",
+        source_url="https://example.com/news/9",
+        title="不該重試",
+        date="2026/08/04",
+        category="一般公告",
+        unit="教學組",
+    )
+
+    with pytest.raises(discord.HTTPException):
+        asyncio.run(poster.post_announcement(forum=forum, announcement=announcement))
+
+    assert forum.attempts == 1
+
+
+def test_post_announcement_still_retries_when_a_tag_is_required() -> None:
+    class TagRequiringForum(FakeForum):
+        def __init__(self) -> None:
+            super().__init__()
+            self.attempts = 0
+
+        async def create_thread(self, **kwargs: object) -> FakeThreadResult:
+            self.attempts += 1
+            if not kwargs.get("applied_tags") or kwargs["applied_tags"] is MISSING:
+                raise discord.HTTPException(
+                    FakeResponse(),
+                    {
+                        "code": 40067,
+                        "message": "A tag is required to create a forum post in this channel",
+                    },
+                )
+            return FakeThreadResult(thread=FakeThread(id=999))
+
+    class FallbackTagMapper(FakeTagMapper):
+        async def resolve_fallback_tags(self, forum: object) -> list[object]:
+            return [type("Tag", (), {"id": 1, "name": "一般公告"})()]
+
+    poster = ForumPoster(tag_mapper=FallbackTagMapper(), dry_run=False)
+    forum = TagRequiringForum()
+    announcement = Announcement(
+        source_id="10",
+        source_hash="hash-10",
+        source_url="https://example.com/news/10",
+        title="需要標籤",
+        date="2026/08/04",
+        category="不存在的類別",
+        unit="教學組",
+    )
+
+    result = asyncio.run(poster.post_announcement(forum=forum, announcement=announcement))
+
+    assert forum.attempts == 2
+    assert result.posted is True
+    assert result.thread_id == 999
+    assert result.applied_tag_names == ["一般公告"]

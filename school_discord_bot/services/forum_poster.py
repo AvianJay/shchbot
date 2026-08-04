@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 import discord
 from discord.utils import MISSING
 
-from school_discord_bot.models.announcement import Announcement, normalize_text
+from school_discord_bot.models.announcement import Announcement, normalize_text, sanitize_url
 from school_discord_bot.services.tag_mapper import TagMapper
 
 
@@ -27,6 +27,7 @@ class ForumPoster:
 
     FIELD_VALUE_LIMIT = 1024
     SCHOOL_TIMEZONE = timezone(timedelta(hours=8), name="Asia/Taipei")
+    TAG_REQUIRED_ERROR_CODE = 40067
 
     def __init__(
         self,
@@ -96,15 +97,22 @@ class ForumPoster:
         try:
             thread = await forum.create_thread(**create_thread_kwargs)
         except discord.HTTPException as exc:
-            if not applied_tags:
-                fallback_tags = await self.tag_mapper.resolve_fallback_tags(forum)
-                fallback_kwargs = dict(create_thread_kwargs)
-                fallback_kwargs["applied_tags"] = fallback_tags if fallback_tags else MISSING
-                thread = await forum.create_thread(**fallback_kwargs)
-                applied_tag_names = [tag.name for tag in fallback_tags]
-            else:
+            if not self._is_missing_tag_error(exc) or applied_tags:
                 self.logger.exception("Failed to post announcement %s", announcement.source_id)
-                raise exc
+                raise
+
+            fallback_tags = await self.tag_mapper.resolve_fallback_tags(forum)
+            fallback_kwargs = dict(create_thread_kwargs)
+            fallback_kwargs["applied_tags"] = fallback_tags if fallback_tags else MISSING
+            try:
+                thread = await forum.create_thread(**fallback_kwargs)
+            except discord.HTTPException:
+                self.logger.exception(
+                    "Failed to post announcement %s even with fallback tags",
+                    announcement.source_id,
+                )
+                raise
+            applied_tag_names = [tag.name for tag in fallback_tags]
 
         thread_id = getattr(thread.thread, "id", None)
         return PostResult(
@@ -123,8 +131,9 @@ class ForumPoster:
         lines: list[str] = []
         if self.announcement_mention_prefix:
             lines.append(self.announcement_mention_prefix)
-        if announcement.source_url:
-            lines.append(f"原始公告：{announcement.source_url}")
+        source_url = sanitize_url(announcement.source_url)
+        if source_url:
+            lines.append(f"原始公告：{source_url}")
         else:
             lines.append("原始公告連結：無公開連結")
         return "\n".join(lines)
@@ -133,7 +142,7 @@ class ForumPoster:
         description = self._build_description(announcement)
         embed = discord.Embed(
             title=self._truncate(normalize_text(announcement.title), limit=256),
-            url=announcement.source_url or None,
+            url=sanitize_url(announcement.source_url),
             description=self._truncate(description, limit=4096),
             color=discord.Color.red(),
         )
@@ -214,7 +223,7 @@ class ForumPoster:
 
     def _build_link_line(self, link: object) -> str:
         name = normalize_text(getattr(link, "name", "") or getattr(link, "label", "連結"))
-        url = normalize_text(getattr(link, "url", ""))
+        url = sanitize_url(getattr(link, "url", ""))
         if not url:
             return ""
 
@@ -306,7 +315,9 @@ class ForumPoster:
             src = normalize_text(image.get("src"))
             if not src or src.startswith("data:"):
                 continue
-            return urljoin(base_url, src)
+            image_url = sanitize_url(urljoin(base_url, src))
+            if image_url is not None:
+                return image_url
         return None
 
     def _normalize_link_display_name(self, *, name: str, url: str) -> str:
@@ -342,3 +353,14 @@ class ForumPoster:
     def _forum_requires_tag(self, forum: discord.ForumChannel) -> bool:
         flags = getattr(forum, "flags", None)
         return bool(getattr(flags, "require_tag", False))
+
+    def _is_missing_tag_error(self, exc: discord.HTTPException) -> bool:
+        """Only a genuine "tag required" rejection is worth retrying with fallback tags.
+
+        Retrying any 400 is harmful: a malformed embed URL fails identically the
+        second time, and the retry hides the real cause.
+        """
+        if getattr(exc, "code", None) == self.TAG_REQUIRED_ERROR_CODE:
+            return True
+        text = str(getattr(exc, "text", "") or "").casefold()
+        return "tag is required" in text or "applied_tags" in text

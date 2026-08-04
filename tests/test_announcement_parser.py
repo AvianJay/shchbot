@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from school_discord_bot.models.announcement import Announcement
+import pytest
+
+from school_discord_bot.models.announcement import Announcement, sanitize_url
 from school_discord_bot.services.announcement_parser import (
     build_public_news_url,
+    extract_external_links,
     parse_announcements_from_table_html,
+    parse_attached_files,
     parse_detail_json,
     parse_detail_page_html,
     parse_list_json,
@@ -114,3 +118,60 @@ def test_parse_detail_page_html_fixture() -> None:
     assert parsed.attachments[0].name == "報名簡章.pdf"
     assert parsed.external_links[0].label == "線上報名表"
     assert parsed.important_dates == ["115/07/12(日)"]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        # The regression that broke posting: g_root_path is a JS string literal.
+        (
+            "https:\\/\\/www.dali.tc.edu.tw\\/ischool\\/public/news_view/show.php?nid=20065",
+            "https://www.dali.tc.edu.tw/ischool/public/news_view/show.php?nid=20065",
+        ),
+        ("https://example.com/form", "https://example.com/form"),
+        ("  https://example.com/form  ", "https://example.com/form"),
+        ("http://example.com", "http://example.com"),
+        (None, None),
+        ("", None),
+        ("javascript:alert(1)", None),
+        ("mailto:someone@example.com", None),
+        ("//example.com/protocol-relative", None),
+        ("/ischool/public/news_view/show.php", None),
+        ("https://example.com/a b", None),
+        ("https://", None),
+    ],
+)
+def test_sanitize_url(value: str | None, expected: str | None) -> None:
+    assert sanitize_url(value) == expected
+
+
+def test_parse_widget_config_resolves_relative_root_path() -> None:
+    html = 'var g_root_path = "/ischool/";var g_unique_id = "widget-id";'
+
+    config = parse_widget_config(html, WIDGET_URL)
+
+    assert config.root_path == "https://www.dali.tc.edu.tw/ischool/"
+    assert build_public_news_url(config.public_view_base_url, "20065") == (
+        "https://www.dali.tc.edu.tw/ischool/public/news_view/show.php?nid=20065"
+    )
+
+
+def test_build_public_news_url_returns_none_when_base_is_unusable() -> None:
+    assert build_public_news_url("not-a-url", "20065") is None
+
+
+def test_attachment_and_external_links_survive_an_escaped_base() -> None:
+    escaped_root = "https:\\/\\/www.dali.tc.edu.tw\\/ischool\\/"
+
+    attachments = parse_attached_files(
+        '[[1,2048,"%u5831%u540D%u7C21%u7AE0.pdf"]]',
+        root_path=escaped_root,
+        news_id="20065",
+    )
+    assert attachments[0].url.startswith("https://www.dali.tc.edu.tw/ischool/news/attached/20065/")
+
+    links = extract_external_links(
+        '<a href="files/form.pdf">報名表</a><a href="javascript:void(0)">略過</a>',
+        base_url=escaped_root,
+    )
+    assert [link.url for link in links] == ["https://www.dali.tc.edu.tw/ischool/files/form.pdf"]

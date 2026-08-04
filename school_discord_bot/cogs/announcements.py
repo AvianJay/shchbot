@@ -28,6 +28,7 @@ class SyncOutcome:
     new_items: int
     posted_items: int
     results: list[tuple[Announcement, PostResult]]
+    failed_items: int = 0
 
 
 class AnnouncementsCog(
@@ -96,6 +97,7 @@ class AnnouncementsCog(
         scanned = len(announcements)
         new_items = 0
         posted_items = 0
+        failed_items = 0
         results: list[tuple[Announcement, PostResult]] = []
 
         for announcement in announcements:
@@ -110,11 +112,24 @@ class AnnouncementsCog(
             if include_only_unposted and stored.posted_at:
                 continue
 
-            post_result = await self.forum_poster.post_announcement(
-                forum=forum,
-                announcement=stored,
-                force_dry_run=dry_run,
-            )
+            # One bad announcement must not stall the rest of the batch: the poll
+            # loop would otherwise retry the same failure every interval and never
+            # reach anything behind it.
+            try:
+                post_result = await self.forum_poster.post_announcement(
+                    forum=forum,
+                    announcement=stored,
+                    force_dry_run=dry_run,
+                )
+            except Exception:
+                failed_items += 1
+                self.logger.exception(
+                    "Skipping announcement %s (%s) after a failed post",
+                    stored.source_id,
+                    stored.title,
+                )
+                continue
+
             results.append((stored, post_result))
 
             if post_result.posted and post_result.thread_id is not None:
@@ -129,6 +144,7 @@ class AnnouncementsCog(
             new_items=new_items,
             posted_items=posted_items,
             results=results,
+            failed_items=failed_items,
         )
 
     @app_commands.command(name="latest", description="查詢最近的校內公告")
@@ -305,6 +321,8 @@ class AnnouncementsCog(
             f"新增資料：{outcome.new_items}",
             f"實際發文：{outcome.posted_items}",
         ]
+        if outcome.failed_items:
+            lines.append(f"發文失敗：{outcome.failed_items}（詳見伺服器日誌）")
         if outcome.results:
             latest_titles = [result.thread_title for _, result in outcome.results[:5]]
             lines.append("處理項目：" + "、".join(latest_titles))

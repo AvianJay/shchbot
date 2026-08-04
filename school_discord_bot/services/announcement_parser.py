@@ -15,7 +15,9 @@ from school_discord_bot.models.announcement import (
     build_source_hash,
     extract_inner_tag_text,
     normalize_text,
+    sanitize_url,
     strip_category_brackets,
+    unescape_js_slashes,
 )
 
 
@@ -60,11 +62,15 @@ def parse_widget_config(html: str, widget_url: str) -> WidgetConfig:
     root_path_match = _ROOT_PATH_PATTERN.search(html)
     uid_match = _UID_PATTERN.search(html)
 
-    root_path = (
-        root_path_match.group(1).replace("\\/", "/")
-        if root_path_match
-        else f"{parsed_widget.scheme}://{parsed_widget.netloc}/ischool/"
-    )
+    fallback_root_path = f"{parsed_widget.scheme}://{parsed_widget.netloc}/ischool/"
+    if root_path_match:
+        # g_root_path is a JavaScript string literal, so its slashes arrive escaped.
+        # It may also be site-relative, hence resolving it against the widget URL.
+        root_path = urljoin(widget_url, unescape_js_slashes(root_path_match.group(1)))
+    else:
+        root_path = fallback_root_path
+    if sanitize_url(root_path) is None:
+        root_path = fallback_root_path
     uid = uid_match.group(1) if uid_match else query_uid
     widget_base_url = widget_url.rsplit("/", 1)[0] + "/"
 
@@ -80,8 +86,8 @@ def parse_widget_config(html: str, widget_url: str) -> WidgetConfig:
     )
 
 
-def build_public_news_url(public_view_base_url: str, news_id: str) -> str:
-    return f"{public_view_base_url}?nid={news_id}"
+def build_public_news_url(public_view_base_url: str, news_id: str) -> str | None:
+    return sanitize_url(f"{public_view_base_url}?nid={news_id}")
 
 
 def parse_announcements_from_table_html(html: str, config: WidgetConfig) -> list[Announcement]:
@@ -154,10 +160,12 @@ def parse_list_json(payload: list[dict[str, Any]], config: WidgetConfig) -> Pars
             inner_tag_text=extract_inner_tag_text(title),
         )
 
-        if normalize_text(record.get("content_type")) == "url" and normalize_text(record.get("content")):
-            announcement.external_links.append(
-                ExternalLink(label="外部連結", url=normalize_text(record.get("content")))
-            )
+        if normalize_text(record.get("content_type")) == "url":
+            external_url = sanitize_url(record.get("content"))
+            if external_url is not None:
+                announcement.external_links.append(
+                    ExternalLink(label="外部連結", url=external_url)
+                )
 
         announcements.append(announcement)
 
@@ -221,9 +229,9 @@ def parse_detail_page_html(html: str, announcement: Announcement, root_path: str
     excerpt = build_excerpt(content_text)
 
     attachments = [
-        AttachmentLink(name=normalize_text(anchor.get_text(" ", strip=True)), url=urljoin(root_path, anchor.get("href", "")))
+        AttachmentLink(name=normalize_text(anchor.get_text(" ", strip=True)), url=attachment_url)
         for anchor in soup.select("#trAttachment a[href]")
-        if normalize_text(anchor.get("href"))
+        if (attachment_url := sanitize_url(urljoin(root_path, anchor.get("href", "")))) is not None
     ]
     if not attachments:
         raw_attached_data = _ATTACHED_FILE_PATTERN.search(html)
@@ -281,8 +289,8 @@ def extract_external_links(content_html: str, base_url: str) -> list[ExternalLin
         href = normalize_text(anchor.get("href"))
         if not href or href.startswith("javascript:") or href.startswith("mailto:"):
             continue
-        absolute_url = urljoin(base_url, href)
-        if absolute_url in seen:
+        absolute_url = sanitize_url(urljoin(base_url, href))
+        if absolute_url is None or absolute_url in seen:
             continue
         seen.add(absolute_url)
         links.append(
@@ -321,7 +329,9 @@ def parse_attached_files(attached_file_data: str | list[Any], root_path: str, ne
             continue
         file_name = _decode_js_escaped_text(str(item[2]))
         encoded_name = quote(file_name, safe="").replace("%20", "+")
-        url = urljoin(root_path, f"news/attached/{news_id}/{encoded_name}")
+        url = sanitize_url(urljoin(root_path, f"news/attached/{news_id}/{encoded_name}"))
+        if url is None:
+            continue
         attachments.append(AttachmentLink(name=file_name, url=url))
     return attachments
 

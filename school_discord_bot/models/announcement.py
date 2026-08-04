@@ -11,6 +11,8 @@ from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 _FULL_WIDTH_SPACE = "\u3000"
 _LEADING_TAG_PATTERN = re.compile(r"^((?:[【\[].+?[】\]])+)")
 _WHITESPACE_PATTERN = re.compile(r"\s+")
+_URL_FORBIDDEN_CHARACTERS = frozenset(' \t\n\r"<>\\')
+_ALLOWED_URL_SCHEMES = frozenset({"http", "https"})
 
 
 def normalize_text(value: str | None) -> str:
@@ -30,12 +32,40 @@ def strip_category_brackets(value: str | None) -> str:
     return text
 
 
-def canonicalize_url(url: str | None) -> str | None:
-    if not url:
+def unescape_js_slashes(value: str | None) -> str:
+    """Undo the ``\\/`` escaping used inside the school site's inline JavaScript."""
+    if not value:
+        return ""
+    return value.replace("\\/", "/")
+
+
+def sanitize_url(value: str | None) -> str | None:
+    """Return a URL Discord accepts, or None when the value cannot be repaired.
+
+    The school widget exposes ``g_root_path`` as a JavaScript string literal, so
+    values scraped from it arrive with escaped slashes. Joining such a base with
+    a relative path yields something like ``https:\\/\\/host\\/path``, which
+    ``urlparse`` reads as an empty netloc and Discord rejects with
+    ``Not a well formed URL``.
+    """
+    text = unescape_js_slashes(value).strip()
+    if not text:
+        return None
+    if _URL_FORBIDDEN_CHARACTERS.intersection(text):
         return None
 
-    text = normalize_text(url)
     parsed = urlsplit(text)
+    if parsed.scheme.lower() not in _ALLOWED_URL_SCHEMES or not parsed.netloc:
+        return None
+    return text
+
+
+def canonicalize_url(url: str | None) -> str | None:
+    sanitized = sanitize_url(url)
+    if sanitized is None:
+        return None
+
+    parsed = urlsplit(sanitized)
     filtered_items = [
         (key, value)
         for key, value in parse_qsl(parsed.query, keep_blank_values=True)
