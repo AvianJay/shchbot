@@ -8,6 +8,7 @@ import aiosqlite
 
 from school_discord_bot.db.migrations import apply_migrations
 from school_discord_bot.models.announcement import Announcement
+from school_discord_bot.models.curriculum import ClassTimetable
 
 
 class Database:
@@ -176,6 +177,51 @@ class Database:
         if row is None:
             return default
         return str(row["value"])
+
+    async def upsert_class_timetable(self, timetable: ClassTimetable) -> None:
+        await self._execute(
+            """
+            INSERT INTO class_timetables (
+                class_code, grade, schedule_title, homeroom_teacher, grid_json, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(class_code) DO UPDATE SET
+                grade = excluded.grade,
+                schedule_title = excluded.schedule_title,
+                homeroom_teacher = excluded.homeroom_teacher,
+                grid_json = excluded.grid_json,
+                fetched_at = CURRENT_TIMESTAMP
+            """,
+            (
+                timetable.class_code,
+                timetable.grade,
+                timetable.schedule_title,
+                timetable.homeroom_teacher,
+                timetable.to_grid_json(),
+            ),
+        )
+
+    async def get_class_timetable(self, class_code: str) -> ClassTimetable | None:
+        row = await self._fetchone(
+            "SELECT * FROM class_timetables WHERE class_code = ?",
+            (class_code,),
+        )
+        return ClassTimetable.from_database_row(row) if row else None
+
+    async def list_class_codes(self, grade: str | None = None) -> list[str]:
+        if grade:
+            rows = await self._fetchall(
+                "SELECT class_code FROM class_timetables WHERE grade = ? ORDER BY class_code ASC",
+                (grade,),
+            )
+        else:
+            rows = await self._fetchall(
+                "SELECT class_code FROM class_timetables ORDER BY class_code ASC"
+            )
+        return [str(row["class_code"]) for row in rows]
+
+    async def count_class_timetables(self) -> int:
+        row = await self._fetchone("SELECT COUNT(*) AS total FROM class_timetables")
+        return int(row["total"] if row is not None else 0)
 
     async def upsert_tag_mapping(
         self,

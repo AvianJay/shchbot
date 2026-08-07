@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 import logging
 from typing import Iterable
 from urllib.parse import urljoin, urlparse
@@ -11,6 +11,7 @@ import discord
 from discord.utils import MISSING
 
 from school_discord_bot.models.announcement import Announcement, normalize_text, sanitize_url
+from school_discord_bot.models.curriculum import TAIPEI_TZ
 from school_discord_bot.services.tag_mapper import TagMapper
 
 
@@ -26,7 +27,7 @@ class ForumPoster:
     """Create Discord forum posts for school announcements with safe defaults."""
 
     FIELD_VALUE_LIMIT = 1024
-    SCHOOL_TIMEZONE = timezone(timedelta(hours=8), name="Asia/Taipei")
+    SCHOOL_TIMEZONE = TAIPEI_TZ
     TAG_REQUIRED_ERROR_CODE = 40067
 
     def __init__(

@@ -77,6 +77,20 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     """,
+    """
+    CREATE TABLE IF NOT EXISTS class_timetables (
+        class_code TEXT PRIMARY KEY,
+        grade TEXT NOT NULL,
+        schedule_title TEXT,
+        homeroom_teacher TEXT,
+        grid_json TEXT NOT NULL,
+        fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_class_timetables_grade
+    ON class_timetables (grade, class_code);
+    """,
 )
 
 

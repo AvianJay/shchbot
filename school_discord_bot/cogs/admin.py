@@ -5,6 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from school_discord_bot.cogs.announcements import admin_only
+from school_discord_bot.cogs.curriculum import CurriculumCog
 from school_discord_bot.cogs.school_links import SchoolLinksView, build_school_links_embed
 from school_discord_bot.db.database import Database
 from school_discord_bot.services.forum_poster import ForumPoster
@@ -92,6 +93,8 @@ class AdminCog(
         embed.add_field(name="/school setup", value="檢查頻道、權限、資料庫與爬蟲狀態", inline=False)
         embed.add_field(name="/school links", value="顯示學校常用公開入口", inline=False)
         embed.add_field(name="/school send_links", value="將學校常用公開連結發送到頻道", inline=False)
+        embed.add_field(name="/school send_curriculum", value="將班級課表查詢面板發送到頻道", inline=False)
+        embed.add_field(name="/課表 <班級>", value="查詢班級今日課表，例如 /課表 205", inline=False)
         embed.add_field(name="/news check", value="立即同步最新公告", inline=False)
         embed.add_field(name="/news backfill", value="補發 bot 啟用前的公告", inline=False)
         embed.add_field(name="/news status", value="檢查同步狀態", inline=False)
@@ -100,4 +103,21 @@ class AdminCog(
         embed.add_field(name="/news latest", value="查詢最近公告", inline=False)
         embed.add_field(name="/news search", value="搜尋已保存公告", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="send_curriculum", description="將班級課表查詢面板發送到頻道")
+    @admin_only()
+    async def school_send_curriculum(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        channel = interaction.channel
+        if not channel or not isinstance(channel, discord.TextChannel):
+            await interaction.followup.send("❌ 無法在此頻道發佈", ephemeral=True)
+            return
+
+        cog = interaction.client.cogs.get("CurriculumCog")
+        if not isinstance(cog, CurriculumCog):
+            await interaction.followup.send("❌ 課表模組尚未載入", ephemeral=True)
+            return
+
+        await cog.post_panel(channel)
+        await interaction.followup.send("✅ 已將班級課表查詢面板發送到頻道", ephemeral=True)
 

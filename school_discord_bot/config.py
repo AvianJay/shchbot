@@ -45,6 +45,7 @@ class Settings:
     max_backfill_count: int = 30
     max_preview_count: int = 10
     default_fetch_page_size: int = 10
+    curriculum_refresh_hours: int = 12
     user_agent: str = (
         "SchoolDiscordBot/0.1 (+https://www.dali.tc.edu.tw/home; "
         "contact: server-admin)"
@@ -67,6 +68,10 @@ class Settings:
         poll_interval_seconds = int(os.getenv("POLL_INTERVAL_SECONDS", "600"))
         if poll_interval_seconds < 60:
             raise ValueError("POLL_INTERVAL_SECONDS must be at least 60 seconds")
+
+        curriculum_refresh_hours = int(os.getenv("CURRICULUM_REFRESH_HOURS", "12"))
+        if curriculum_refresh_hours < 1:
+            raise ValueError("CURRICULUM_REFRESH_HOURS must be at least 1 hour")
 
         database_path = Path(os.getenv("DATABASE_PATH", "data/bot.sqlite3"))
         mention_everyone = _parse_bool(os.getenv("ANNOUNCEMENT_MENTION_EVERYONE"), default=False)
@@ -107,6 +112,7 @@ class Settings:
             ),
             announcement_allowed_mentions=announcement_allowed_mentions,
             announcement_mention_prefix=announcement_mention_prefix,
+            curriculum_refresh_hours=curriculum_refresh_hours,
         )
 
     def resolve_database_path(self, project_root: Path) -> Path:

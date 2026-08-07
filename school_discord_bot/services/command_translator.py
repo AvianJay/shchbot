@@ -56,5 +56,12 @@ class CommandTranslator(app_commands.Translator):
             "學校公告類別": "School announcement category",
             "現有論壇標籤名稱或 ID": "Existing forum tag name or ID",
             "tag": "tag",
+            # Curriculum
+            "課表": "timetable",
+            "查詢班級今日課表": "Look up today's class timetable",
+            "班級": "class_code",
+            "班級代號，例如 205": "Class code, e.g. 205",
+            "send_curriculum": "send_curriculum",
+            "將班級課表查詢面板發送到頻道": "Post a class timetable lookup panel to the channel",
         }
         return translations.get(str(string))

@@ -10,9 +10,11 @@ from discord.ext import commands
 
 from school_discord_bot.cogs.admin import AdminCog
 from school_discord_bot.cogs.announcements import AnnouncementsCog
+from school_discord_bot.cogs.curriculum import CurriculumCog, CurriculumPanelView
 from school_discord_bot.config import Settings
 from school_discord_bot.db.database import Database
 from school_discord_bot.services.command_translator import CommandTranslator
+from school_discord_bot.services.curriculum_client import CurriculumClient
 from school_discord_bot.services.forum_poster import ForumPoster
 from school_discord_bot.services.school_news_client import SchoolNewsClient
 from school_discord_bot.services.tag_mapper import TagMapper
@@ -43,6 +45,13 @@ class SchoolDiscordBot(commands.Bot):
             announcement_mention_prefix=self.settings.announcement_mention_prefix,
         )
 
+        curriculum_client = CurriculumClient(
+            session=self.http_session,
+            timeout_seconds=self.settings.http_timeout_seconds,
+            user_agent=self.settings.user_agent,
+            allow_insecure_ssl_fallback=self.settings.allow_insecure_school_ssl_fallback,
+        )
+
         admin_cog = AdminCog(
             self,
             database=self.database,
@@ -65,6 +74,19 @@ class SchoolDiscordBot(commands.Bot):
 
         await self.add_cog(admin_cog)
         await self.add_cog(announcements_cog)
+
+        curriculum_cog = CurriculumCog(
+            self,
+            database=self.database,
+            curriculum_client=curriculum_client,
+            guild_id=self.settings.guild_id,
+            refresh_hours=self.settings.curriculum_refresh_hours,
+        )
+        await self.add_cog(curriculum_cog)
+
+        # Register the persistent grade-panel view so its buttons survive restarts.
+        self.add_view(CurriculumPanelView())
+
         await self.tree.set_translator(CommandTranslator())
         self.tree.copy_global_to(guild=discord.Object(id=self.settings.guild_id))
         await self.tree.sync(guild=discord.Object(id=self.settings.guild_id))
