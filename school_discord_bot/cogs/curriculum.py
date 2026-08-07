@@ -24,7 +24,10 @@ from school_discord_bot.services.curriculum_client import (
     CurriculumClient,
     _grade_for_code,
 )
-from school_discord_bot.services.curriculum_renderer import render_week_image
+from school_discord_bot.services.curriculum_renderer import (
+    ensure_font_downloaded,
+    render_week_image,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +333,10 @@ class CurriculumCog(commands.Cog, name="CurriculumCog"):
     @prefetch_timetables.before_loop
     async def before_prefetch(self) -> None:
         await self.bot.wait_until_ready()
+        # Fetch the CJK font on first run if none is available locally. It is
+        # not committed to the repo (see ensure_font_downloaded), and this runs
+        # before the first render rather than blocking cog_load.
+        await ensure_font_downloaded(self.curriculum_client.session)
 
     # ------------------------------------------------------------------
     # /課表 <class_code>

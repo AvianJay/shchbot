@@ -4,6 +4,7 @@ import io
 import logging
 from pathlib import Path
 
+import aiohttp
 from PIL import Image, ImageDraw, ImageFont
 
 from school_discord_bot.models.curriculum import (
@@ -40,6 +41,8 @@ _NOW_ARROW = (211, 47, 47)
 # Font cache, resolved lazily.
 _font_cache: tuple[ImageFont.FreeTypeFont, ImageFont.FreeTypeFont, ImageFont.FreeTypeFont] | None = None
 
+_FONT_DOWNLOAD_URL = "https://cdn.jsdelivr.net/gh/notofonts/noto-cjk@main/Sans/SubsetOTF/TC/NotoSansTC-Regular.otf"
+
 _FONT_PATH_CANDIDATES: tuple[str, ...] = (
     # Windows — both confirmed present on this dev host.
     r"C:\Windows\Fonts\msjh.ttc",
@@ -52,13 +55,25 @@ _FONT_PATH_CANDIDATES: tuple[str, ...] = (
 )
 
 
+def _bundled_font_path() -> Path:
+    """Where an auto-downloaded font is cached."""
+    return Path(__file__).parent.parent / "assets" / "NotoSansTC-Regular.otf"
+
+
 def _resolve_font_path() -> str | None:
-    """Walk candidate paths and the ``CURRICULUM_FONT_PATH`` env var."""
+    """Walk the ``CURRICULUM_FONT_PATH`` env var, then candidate paths."""
     import os
 
     env = os.getenv("CURRICULUM_FONT_PATH")
     if env and Path(env).is_file():
         return env
+
+    # The auto-download cache is checked first and independently of the
+    # candidate list, so a downloaded font is always found again on the next
+    # call (and on the next restart).
+    downloaded = _bundled_font_path()
+    if downloaded.is_file():
+        return str(downloaded)
 
     for cand in _FONT_PATH_CANDIDATES:
         if Path(cand).is_file():
@@ -66,6 +81,52 @@ def _resolve_font_path() -> str | None:
             return cand
 
     return None
+
+
+async def ensure_font_downloaded(session: aiohttp.ClientSession) -> str | None:
+    """Download the CJK font if no usable one is present.
+
+    Called once at startup. The font is not committed to the repository — a
+    subset small enough to be worth committing cannot safely cover Chinese
+    personal names (roughly one teacher in seven here has a name character
+    outside BIG5 Level 1), so the full font is fetched on first run and cached
+    under ``assets/`` instead.
+
+    Returns the resolved font path, or ``None`` if the download failed and no
+    system font is available. Never raises: a missing font degrades the image
+    but must not stop the bot from starting.
+    """
+    existing = _resolve_font_path()
+    if existing is not None:
+        return existing
+
+    target = _bundled_font_path()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_suffix(".part")
+
+    logger.info("No CJK font found; downloading Noto Sans TC from %s", _FONT_DOWNLOAD_URL)
+    try:
+        timeout = aiohttp.ClientTimeout(total=180)
+        async with session.get(_FONT_DOWNLOAD_URL, timeout=timeout) as response:
+            response.raise_for_status()
+            payload = await response.read()
+
+        if len(payload) < 1_000_000:
+            raise ValueError(f"downloaded font is implausibly small ({len(payload)} bytes)")
+
+        tmp.write_bytes(payload)
+        # Validate before publishing so a corrupt download can't poison the cache.
+        ImageFont.truetype(str(tmp), 16)
+        tmp.replace(target)
+        logger.info("Font downloaded to %s (%.1f MB)", target, len(payload) / 1048576)
+        return str(target)
+    except Exception:
+        logger.exception(
+            "Failed to download a CJK font. Timetable images will be unavailable. "
+            "Set CURRICULUM_FONT_PATH to a local .ttf/.otf/.ttc to fix this offline."
+        )
+        tmp.unlink(missing_ok=True)
+        return None
 
 
 def _ensure_fonts() -> tuple[ImageFont.FreeTypeFont, ImageFont.FreeTypeFont, ImageFont.FreeTypeFont]:

@@ -20,3 +20,9 @@ htmlcov/
 .hypothesis/
 .tox/
 .nox/
+
+# Auto-downloaded CJK font; keep the directory but not the font file itself.
+school_discord_bot/assets/*.ttf
+school_discord_bot/assets/*.otf
+school_discord_bot/assets/*.ttc
+!school_discord_bot/assets/.gitkeep
