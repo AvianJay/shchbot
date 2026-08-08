@@ -11,10 +11,12 @@ from discord.ext import commands
 from school_discord_bot.cogs.admin import AdminCog
 from school_discord_bot.cogs.announcements import AnnouncementsCog
 from school_discord_bot.cogs.curriculum import CurriculumCog, CurriculumPanelView, SetMyClassButton
+from school_discord_bot.cogs.verification import VerificationCog, VerificationPanelView
 from school_discord_bot.config import Settings
 from school_discord_bot.db.database import Database
 from school_discord_bot.services.command_translator import CommandTranslator
 from school_discord_bot.services.curriculum_client import CurriculumClient
+from school_discord_bot.services.email_service import EmailService
 from school_discord_bot.services.forum_poster import ForumPoster
 from school_discord_bot.services.school_news_client import SchoolNewsClient
 from school_discord_bot.services.tag_mapper import TagMapper
@@ -84,10 +86,31 @@ class SchoolDiscordBot(commands.Bot):
         )
         await self.add_cog(curriculum_cog)
 
+        email_service = EmailService(
+            host=self.settings.smtp_host,
+            port=self.settings.smtp_port,
+            encryption=self.settings.smtp_encryption,
+            username=self.settings.smtp_username,
+            password=self.settings.smtp_password,
+            from_address=self.settings.smtp_from_address,
+            from_name=self.settings.smtp_from_name,
+        )
+
+        verification_cog = VerificationCog(
+            self,
+            database=self.database,
+            email_service=email_service,
+            verified_student_role_id=self.settings.verified_student_role_id,
+            guild_id=self.settings.guild_id,
+        )
+        await self.add_cog(verification_cog)
+
         # Register the persistent grade-panel view so its buttons survive restarts.
         self.add_view(CurriculumPanelView())
         # Register the DynamicItem so "set my class" buttons survive restarts.
         self.add_dynamic_items(SetMyClassButton)
+        # Register the persistent verification panel view.
+        self.add_view(VerificationPanelView())
 
         await self.tree.set_translator(CommandTranslator())
         self.tree.copy_global_to(guild=discord.Object(id=self.settings.guild_id))

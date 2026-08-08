@@ -7,6 +7,7 @@ from discord.ext import commands
 from school_discord_bot.cogs.announcements import admin_only
 from school_discord_bot.cogs.curriculum import CurriculumCog
 from school_discord_bot.cogs.school_links import SchoolLinksView, build_school_links_embed
+from school_discord_bot.cogs.verification import VerificationCog
 from school_discord_bot.db.database import Database
 from school_discord_bot.services.forum_poster import ForumPoster
 from school_discord_bot.services.school_news_client import SchoolNewsClient
@@ -120,4 +121,21 @@ class AdminCog(
 
         await cog.post_panel(channel)
         await interaction.followup.send("✅ 已將班級課表查詢面板發送到頻道", ephemeral=True)
+
+    @app_commands.command(name="send_verification", description="將學生身份驗證面板發送到頻道")
+    @admin_only()
+    async def school_send_verification(self, interaction: discord.Interaction) -> None:
+        await interaction.response.defer(ephemeral=True)
+        channel = interaction.channel
+        if not channel or not isinstance(channel, discord.TextChannel):
+            await interaction.followup.send("❌ 無法在此頻道發佈", ephemeral=True)
+            return
+
+        cog = interaction.client.cogs.get("VerificationCog")
+        if not isinstance(cog, VerificationCog):
+            await interaction.followup.send("❌ 驗證模組尚未載入", ephemeral=True)
+            return
+
+        await cog.post_panel(channel)
+        await interaction.followup.send("✅ 已將學生身份驗證面板發送到頻道", ephemeral=True)
 

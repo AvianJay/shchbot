@@ -41,11 +41,19 @@ class Settings:
     allow_insecure_school_ssl_fallback: bool
     announcement_allowed_mentions: discord.AllowedMentions
     announcement_mention_prefix: str
+    verified_student_role_id: int
+    smtp_host: str
+    smtp_username: str
+    smtp_password: str
+    smtp_from_address: str
     http_timeout_seconds: int = 20
     max_backfill_count: int = 30
     max_preview_count: int = 10
     default_fetch_page_size: int = 10
     curriculum_refresh_hours: int = 12
+    smtp_port: int = 587
+    smtp_encryption: str = "starttls"  # "ssl" | "starttls" | "none"
+    smtp_from_name: str = "大里高中驗證系統"
     user_agent: str = (
         "SchoolDiscordBot/0.1 (+https://www.dali.tc.edu.tw/home; "
         "contact: server-admin)"
@@ -59,6 +67,11 @@ class Settings:
             "DISCORD_TOKEN": os.getenv("DISCORD_TOKEN"),
             "GUILD_ID": os.getenv("GUILD_ID"),
             "ANNOUNCEMENT_FORUM_CHANNEL_ID": os.getenv("ANNOUNCEMENT_FORUM_CHANNEL_ID"),
+            "VERIFIED_STUDENT_ROLE_ID": os.getenv("VERIFIED_STUDENT_ROLE_ID"),
+            "SMTP_HOST": os.getenv("SMTP_HOST"),
+            "SMTP_USERNAME": os.getenv("SMTP_USERNAME"),
+            "SMTP_PASSWORD": os.getenv("SMTP_PASSWORD"),
+            "SMTP_FROM_ADDRESS": os.getenv("SMTP_FROM_ADDRESS"),
         }
         missing = [key for key, value in required.items() if not value]
         if missing:
@@ -92,6 +105,12 @@ class Settings:
             replied_user=False,
         )
 
+        smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        smtp_encryption = (os.getenv("SMTP_ENCRYPTION") or "starttls").strip().lower()
+        if smtp_encryption not in {"ssl", "starttls", "none"}:
+            raise ValueError("SMTP_ENCRYPTION must be 'ssl', 'starttls', or 'none'")
+        smtp_from_name = (os.getenv("SMTP_FROM_NAME") or "大里高中驗證系統").strip()
+
         return cls(
             discord_token=required["DISCORD_TOKEN"] or "",
             guild_id=int(required["GUILD_ID"] or "0"),
@@ -112,7 +131,15 @@ class Settings:
             ),
             announcement_allowed_mentions=announcement_allowed_mentions,
             announcement_mention_prefix=announcement_mention_prefix,
+            verified_student_role_id=int(required["VERIFIED_STUDENT_ROLE_ID"] or "0"),
+            smtp_host=required["SMTP_HOST"] or "",
+            smtp_username=required["SMTP_USERNAME"] or "",
+            smtp_password=required["SMTP_PASSWORD"] or "",
+            smtp_from_address=required["SMTP_FROM_ADDRESS"] or "",
             curriculum_refresh_hours=curriculum_refresh_hours,
+            smtp_port=smtp_port,
+            smtp_encryption=smtp_encryption,
+            smtp_from_name=smtp_from_name,
         )
 
     def resolve_database_path(self, project_root: Path) -> Path:

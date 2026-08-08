@@ -244,6 +244,69 @@ class Database:
             (str(user_id), class_code),
         )
 
+    async def is_student_verified(self, user_id: str | int) -> bool:
+        """Return True if the Discord user has already completed student verification."""
+        row = await self._fetchone(
+            "SELECT 1 FROM verified_students WHERE user_id = ?",
+            (str(user_id),),
+        )
+        return row is not None
+
+    async def upsert_pending_verification(
+        self,
+        *,
+        user_id: str | int,
+        student_id: str,
+        code: str,
+        expires_at: float,
+    ) -> None:
+        """Save or overwrite a pending verification record for a Discord user."""
+        await self._execute(
+            """
+            INSERT INTO student_verifications (user_id, student_id, code, expires_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                student_id = excluded.student_id,
+                code       = excluded.code,
+                expires_at = excluded.expires_at
+            """,
+            (str(user_id), student_id, code, expires_at),
+        )
+
+    async def get_pending_verification(self, user_id: str | int) -> dict[str, Any] | None:
+        """Return the pending verification record for a Discord user, or None."""
+        row = await self._fetchone(
+            "SELECT * FROM student_verifications WHERE user_id = ?",
+            (str(user_id),),
+        )
+        return dict(row) if row else None
+
+    async def delete_pending_verification(self, user_id: str | int) -> None:
+        """Remove a pending verification record (used after success or expiry cleanup)."""
+        await self._execute(
+            "DELETE FROM student_verifications WHERE user_id = ?",
+            (str(user_id),),
+        )
+
+    async def insert_verified_student(
+        self,
+        *,
+        user_id: str | int,
+        student_id: str,
+        verified_at: float,
+    ) -> None:
+        """Record a successfully verified student."""
+        await self._execute(
+            """
+            INSERT INTO verified_students (user_id, student_id, verified_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_id) DO UPDATE SET
+                student_id  = excluded.student_id,
+                verified_at = excluded.verified_at
+            """,
+            (str(user_id), student_id, verified_at),
+        )
+
     async def upsert_tag_mapping(
         self,
         *,

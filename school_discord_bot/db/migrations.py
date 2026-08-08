@@ -98,6 +98,21 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
     """,
+    """
+    CREATE TABLE IF NOT EXISTS student_verifications (
+        user_id    TEXT PRIMARY KEY,
+        student_id TEXT NOT NULL,
+        code       TEXT NOT NULL,
+        expires_at REAL NOT NULL
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS verified_students (
+        user_id     TEXT PRIMARY KEY,
+        student_id  TEXT NOT NULL,
+        verified_at REAL NOT NULL
+    );
+    """,
 )
 
 
