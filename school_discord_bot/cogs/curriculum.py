@@ -266,6 +266,7 @@ class MyClassButton(discord.ui.Button):
             custom_id=CUSTOM_MY_CLASS,
             style=discord.ButtonStyle.success,  # green
             emoji="⭐",
+            row=1,  # second action row, below the grade buttons
         )
 
     async def callback(self, interaction: discord.Interaction) -> None:
@@ -329,13 +330,13 @@ class GradeButton(discord.ui.Button):
 
 
 class CurriculumPanelView(discord.ui.View):
-    """Four persistent buttons: ⭐ 我的班級 / 一年級 / 二年級 / 三年級."""
+    """Persistent panel: three grade buttons on row 0, ⭐ 我的班級 on row 1."""
 
     def __init__(self) -> None:
         super().__init__(timeout=None)
-        self.add_item(MyClassButton())
         for grade, custom_id in _GRADE_CUSTOM_IDS.items():
-            self.add_item(GradeButton(grade, custom_id))
+            self.add_item(GradeButton(grade, custom_id))  # row 0 (default)
+        self.add_item(MyClassButton())  # row 1
 
 # ---------------------------------------------------------------------------
 # Autocomplete helper (must be defined before the class that references it)
