@@ -10,7 +10,7 @@ from discord.ext import commands
 
 from school_discord_bot.cogs.admin import AdminCog
 from school_discord_bot.cogs.announcements import AnnouncementsCog
-from school_discord_bot.cogs.curriculum import CurriculumCog, CurriculumPanelView
+from school_discord_bot.cogs.curriculum import CurriculumCog, CurriculumPanelView, SetMyClassButton
 from school_discord_bot.config import Settings
 from school_discord_bot.db.database import Database
 from school_discord_bot.services.command_translator import CommandTranslator
@@ -86,6 +86,8 @@ class SchoolDiscordBot(commands.Bot):
 
         # Register the persistent grade-panel view so its buttons survive restarts.
         self.add_view(CurriculumPanelView())
+        # Register the DynamicItem so "set my class" buttons survive restarts.
+        self.add_dynamic_items(SetMyClassButton)
 
         await self.tree.set_translator(CommandTranslator())
         self.tree.copy_global_to(guild=discord.Object(id=self.settings.guild_id))

@@ -61,6 +61,7 @@ class CommandTranslator(app_commands.Translator):
             "查詢班級今日課表": "Look up today's class timetable",
             "班級": "class_code",
             "班級代號，例如 205": "Class code, e.g. 205",
+            "班級代號，例如 205（不填則查詢你的班級）": "Class code, e.g. 205 (leave blank for your saved class)",
             "send_curriculum": "send_curriculum",
             "將班級課表查詢面板發送到頻道": "Post a class timetable lookup panel to the channel",
         }

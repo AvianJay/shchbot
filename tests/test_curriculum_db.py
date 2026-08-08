@@ -137,7 +137,44 @@ def test_empty_lessons_survive_round_trip(tmp_path: Path) -> None:
     asyncio.run(run())
 
 
-def test_migrations_are_idempotent(tmp_path: Path) -> None:
+def test_get_set_user_class_round_trip(tmp_path: Path) -> None:
+    async def run() -> None:
+        database = await _fresh_db(tmp_path)
+        try:
+            assert await database.get_user_class("123456789") is None
+
+            await database.set_user_class("123456789", "205")
+            assert await database.get_user_class("123456789") == "205"
+
+            # Update overwrites, not appends.
+            await database.set_user_class("123456789", "301")
+            assert await database.get_user_class("123456789") == "301"
+
+            # Different users are independent.
+            await database.set_user_class("987654321", "101")
+            assert await database.get_user_class("123456789") == "301"
+            assert await database.get_user_class("987654321") == "101"
+        finally:
+            await database.close()
+
+    asyncio.run(run())
+
+
+def test_user_class_accepts_int_user_id(tmp_path: Path) -> None:
+    """Discord user IDs are ints; the method must coerce them."""
+
+    async def run() -> None:
+        database = await _fresh_db(tmp_path)
+        try:
+            await database.set_user_class(123456789, "205")
+            assert await database.get_user_class(123456789) == "205"
+            # int and str form of the same ID are the same row.
+            assert await database.get_user_class("123456789") == "205"
+        finally:
+            await database.close()
+
+    asyncio.run(run())
+
     """Re-initializing must not drop existing curriculum rows."""
 
     async def run() -> None:

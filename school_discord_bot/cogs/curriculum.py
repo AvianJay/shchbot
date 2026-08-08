@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 
+import re
+
 import discord
 from discord import app_commands
 from discord.ext import commands, tasks
@@ -41,6 +43,10 @@ _COLOR_PANEL = 0x2196F3      # blue — informational panel
 CUSTOM_GRADE_1 = "curriculum:grade:1"
 CUSTOM_GRADE_2 = "curriculum:grade:2"
 CUSTOM_GRADE_3 = "curriculum:grade:3"
+CUSTOM_MY_CLASS = "curriculum:my_class"
+# DynamicItem pattern: curriculum:set_my_class:{code}
+CUSTOM_SET_MY_CLASS_PREFIX = "curriculum:set_my_class:"
+CUSTOM_SET_MY_CLASS_RE = re.compile(r"^curriculum:set_my_class:(?P<code>[1-3]\d{2})$")
 
 _GRADE_CUSTOM_IDS: dict[str, str] = {
     "1年級": CUSTOM_GRADE_1,
@@ -80,7 +86,7 @@ async def build_timetable_response(
     *,
     now: NowStatus,
     today: int | None,
-) -> tuple[discord.Embed, discord.File | None]:
+) -> tuple[discord.Embed, discord.File | None, discord.ui.View]:
     """Produce the embed and optional image that every lookup pathway uses."""
 
     now_text = now.describe()
@@ -137,7 +143,11 @@ async def build_timetable_response(
             inline=False,
         )
 
-    return embed, file
+    # View with a "set my class" button so the user can save this class with one click.
+    view = discord.ui.View(timeout=None)
+    view.add_item(SetMyClassButton(timetable.class_code))
+
+    return embed, file, view
 
 
 # ---------------------------------------------------------------------------
@@ -187,11 +197,11 @@ class ClassSelect(discord.ui.Select):
             await interaction.followup.send("❌ 課表模組尚未載入，請稍後再試", ephemeral=True)
             return
 
-        content, embed, file = await cog.lookup_timetable(code)
+        content, embed, file, view = await cog.lookup_timetable(code)
         if file:
-            await interaction.followup.send(content=content, embed=embed, file=file, ephemeral=True)
+            await interaction.followup.send(content=content, embed=embed, file=file, view=view, ephemeral=True)
         else:
-            await interaction.followup.send(content=content, embed=embed, ephemeral=True)
+            await interaction.followup.send(content=content, embed=embed, view=view, ephemeral=True)
 
 
 class CurriculumClassSelectView(discord.ui.View):
@@ -206,6 +216,79 @@ class CurriculumClassSelectView(discord.ui.View):
 # ---------------------------------------------------------------------------
 # Persistent grade-panel view (survives bot restarts)
 # ---------------------------------------------------------------------------
+
+
+class SetMyClassButton(discord.ui.DynamicItem[discord.ui.Button], template=r"curriculum:set_my_class:(?P<code>[1-3]\d{2})"):
+    """Inline button on every timetable response that saves the class preference.
+
+    Uses ``DynamicItem`` so the class code is encoded in the ``custom_id`` and
+    the button can be re-bound after a restart without any stored message state.
+    """
+
+    def __init__(self, class_code: str) -> None:
+        super().__init__(
+            discord.ui.Button(
+                label="⭐ 設定為我的班級",
+                custom_id=f"{CUSTOM_SET_MY_CLASS_PREFIX}{class_code}",
+                style=discord.ButtonStyle.secondary,
+            )
+        )
+        self.class_code = class_code
+
+    @classmethod
+    async def from_custom_id(
+        cls,
+        interaction: discord.Interaction,
+        item: discord.ui.Button,
+        match: re.Match[str],
+    ) -> "SetMyClassButton":
+        return cls(match.group("code"))
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        cog = interaction.client.cogs.get("CurriculumCog")
+        if not isinstance(cog, CurriculumCog):
+            await interaction.response.send_message("❌ 課表模組尚未載入", ephemeral=True)
+            return
+        await cog.database.set_user_class(interaction.user.id, self.class_code)
+        await interaction.response.send_message(
+            f"✅ 已將 **{self.class_code}** 設定為你的班級！"
+            f"\n之後直接輸入 `/課表` 就會顯示這個班的課表。",
+            ephemeral=True,
+        )
+
+
+class MyClassButton(discord.ui.Button):
+    """Green panel button: opens the current user's saved class directly."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            label="我的班級",
+            custom_id=CUSTOM_MY_CLASS,
+            style=discord.ButtonStyle.success,  # green
+            emoji="⭐",
+        )
+
+    async def callback(self, interaction: discord.Interaction) -> None:
+        cog = interaction.client.cogs.get("CurriculumCog")
+        if not isinstance(cog, CurriculumCog):
+            await interaction.response.send_message("❌ 課表模組尚未載入", ephemeral=True)
+            return
+
+        code = await cog.database.get_user_class(interaction.user.id)
+        if code is None:
+            await interaction.response.send_message(
+                "⚠️ 你還沒有設定班級。\n"
+                "先用年級按鈕開啟課表，然後按 **⭐ 設定為我的班級** 就能快速查詢了！",
+                ephemeral=True,
+            )
+            return
+
+        await interaction.response.defer(ephemeral=True)
+        content, embed, file, view = await cog.lookup_timetable(code)
+        if file:
+            await interaction.followup.send(content=content, embed=embed, file=file, view=view, ephemeral=True)
+        else:
+            await interaction.followup.send(content=content, embed=embed, view=view, ephemeral=True)
 
 
 class GradeButton(discord.ui.Button):
@@ -246,16 +329,11 @@ class GradeButton(discord.ui.Button):
 
 
 class CurriculumPanelView(discord.ui.View):
-    """Three persistent buttons: 一年級 / 二年級 / 三年級.
-
-    Registered via ``bot.add_view`` in ``setup_hook`` so clicks work across
-    restarts. This is the first persistent view in the repo — the existing
-    ``SchoolLinksView`` only works because URL buttons never dispatch
-    interactions.
-    """
+    """Four persistent buttons: ⭐ 我的班級 / 一年級 / 二年級 / 三年級."""
 
     def __init__(self) -> None:
         super().__init__(timeout=None)
+        self.add_item(MyClassButton())
         for grade, custom_id in _GRADE_CUSTOM_IDS.items():
             self.add_item(GradeButton(grade, custom_id))
 
@@ -343,19 +421,33 @@ class CurriculumCog(commands.Cog, name="CurriculumCog"):
     # ------------------------------------------------------------------
 
     @app_commands.command(name="課表", description="查詢班級今日課表")
-    @app_commands.describe(班級="班級代號，例如 205")
+    @app_commands.describe(班級="班級代號，例如 205（不填則查詢你的班級）")
     @app_commands.autocomplete(班級=_autocomplete_class_code)
     async def curriculum_lookup(
         self,
         interaction: discord.Interaction,
-        班級: app_commands.Range[str, 3, 4],
+        班級: app_commands.Range[str, 3, 4] | None = None,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
-        content, embed, file = await self.lookup_timetable(班級)
+
+        code = 班級
+        if code is None:
+            # No arg — try the user's saved preference.
+            code = await self.database.get_user_class(interaction.user.id)
+            if code is None:
+                await interaction.followup.send(
+                    "⚠️ 你還沒有設定班級。\n"
+                    "請先輸入 `/課表 205`（填入你的班級），然後按 **⭐ 設定為我的班級**。\n"
+                    "之後直接 `/課表` 就能快速查詢了！",
+                    ephemeral=True,
+                )
+                return
+
+        content, embed, file, view = await self.lookup_timetable(code)
         if file:
-            await interaction.followup.send(content=content, embed=embed, file=file, ephemeral=True)
+            await interaction.followup.send(content=content, embed=embed, file=file, view=view, ephemeral=True)
         else:
-            await interaction.followup.send(content=content, embed=embed, ephemeral=True)
+            await interaction.followup.send(content=content, embed=embed, view=view, ephemeral=True)
 
     # ------------------------------------------------------------------
     # /school send_curriculum  → the admin that posts the panel
@@ -367,7 +459,7 @@ class CurriculumCog(commands.Cog, name="CurriculumCog"):
     # Internal helpers
     # ------------------------------------------------------------------
 
-    async def lookup_timetable(self, class_code: str) -> tuple[str, discord.Embed, discord.File | None]:
+    async def lookup_timetable(self, class_code: str) -> tuple[str, discord.Embed, discord.File | None, discord.ui.View]:
         """Shared lookup path used by the slash command and the class select."""
         weekday = now_in_taipei().weekday()
         today = None if weekday >= 5 else weekday
@@ -382,6 +474,7 @@ class CurriculumCog(commands.Cog, name="CurriculumCog"):
                     "❌ 班級代號格式錯誤，請輸入如 205 的格式",
                     discord.Embed(title="格式錯誤", color=_COLOR_NODATA),
                     None,
+                    discord.ui.View(),
                 )
 
             try:
@@ -392,6 +485,7 @@ class CurriculumCog(commands.Cog, name="CurriculumCog"):
                     "❌ 無法取得課表，學校網站可能暫時無法連線",
                     discord.Embed(title="連線錯誤", description="請稍後再試", color=_COLOR_NODATA),
                     None,
+                    discord.ui.View(),
                 )
 
             if tt is None:
@@ -403,6 +497,7 @@ class CurriculumCog(commands.Cog, name="CurriculumCog"):
                         color=_COLOR_NODATA,
                     ),
                     None,
+                    discord.ui.View(),
                 )
 
             # Store it so subsequent queries hit the cache.
@@ -411,8 +506,8 @@ class CurriculumCog(commands.Cog, name="CurriculumCog"):
         # Now recompute now-status against the actual timetable.
         now = resolve_now(now_in_taipei(), max_period=tt.max_period())
 
-        embed, file = await build_timetable_response(tt, now=now, today=today)
-        return "", embed, file
+        embed, file, view = await build_timetable_response(tt, now=now, today=today)
+        return "", embed, file, view
 
     async def post_panel(self, channel: discord.TextChannel) -> None:
         """Post the persistent grade-button panel to a channel."""

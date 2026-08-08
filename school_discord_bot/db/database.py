@@ -223,6 +223,27 @@ class Database:
         row = await self._fetchone("SELECT COUNT(*) AS total FROM class_timetables")
         return int(row["total"] if row is not None else 0)
 
+    async def get_user_class(self, user_id: str | int) -> str | None:
+        """Return the saved class code for a Discord user, or None."""
+        row = await self._fetchone(
+            "SELECT class_code FROM user_preferences WHERE user_id = ?",
+            (str(user_id),),
+        )
+        return str(row["class_code"]) if row else None
+
+    async def set_user_class(self, user_id: str | int, class_code: str) -> None:
+        """Save or update the preferred class code for a Discord user."""
+        await self._execute(
+            """
+            INSERT INTO user_preferences (user_id, class_code, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_id) DO UPDATE SET
+                class_code = excluded.class_code,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (str(user_id), class_code),
+        )
+
     async def upsert_tag_mapping(
         self,
         *,
