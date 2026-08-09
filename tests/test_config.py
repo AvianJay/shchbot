@@ -10,8 +10,17 @@ def _clear_mention_env(monkeypatch) -> None:
     monkeypatch.setenv("ANNOUNCEMENT_MENTION_TEXT", "")
 
 
+def _set_verification_env(monkeypatch) -> None:
+    """Set the verification env vars that ``from_env`` requires."""
+    monkeypatch.setenv("VERIFIED_STUDENT_ROLE_ID", "3")
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.test")
+    monkeypatch.setenv("SMTP_USERNAME", "bot@example.test")
+    monkeypatch.setenv("SMTP_FROM_ADDRESS", "noreply@example.test")
+
+
 def test_settings_parse_announcement_allowed_mentions(monkeypatch) -> None:
     _clear_mention_env(monkeypatch)
+    _set_verification_env(monkeypatch)
     monkeypatch.setenv("DISCORD_TOKEN", "token")
     monkeypatch.setenv("GUILD_ID", "1")
     monkeypatch.setenv("ANNOUNCEMENT_FORUM_CHANNEL_ID", "2")
@@ -34,6 +43,7 @@ def test_settings_parse_announcement_allowed_mentions(monkeypatch) -> None:
 
 def test_settings_parse_custom_announcement_mention_text(monkeypatch) -> None:
     _clear_mention_env(monkeypatch)
+    _set_verification_env(monkeypatch)
     monkeypatch.setenv("DISCORD_TOKEN", "token")
     monkeypatch.setenv("GUILD_ID", "1")
     monkeypatch.setenv("ANNOUNCEMENT_FORUM_CHANNEL_ID", "2")
@@ -48,6 +58,7 @@ def test_settings_parse_custom_announcement_mention_text(monkeypatch) -> None:
 
 def test_settings_disable_role_mentions_without_ids(monkeypatch) -> None:
     _clear_mention_env(monkeypatch)
+    _set_verification_env(monkeypatch)
     monkeypatch.setenv("DISCORD_TOKEN", "token")
     monkeypatch.setenv("GUILD_ID", "1")
     monkeypatch.setenv("ANNOUNCEMENT_FORUM_CHANNEL_ID", "2")

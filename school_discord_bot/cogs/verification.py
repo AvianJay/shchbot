@@ -266,17 +266,9 @@ class VerificationCog(commands.Cog, name="VerificationCog"):
             )
             return
 
-        # Check code match (normalize both to strings and strip whitespace)
+        # Check code match (tolerate stray whitespace from copy-paste)
         submitted_code = code.strip()
-        stored_code = pending["code"].strip()
-
-        self.logger.info(
-            "Code verification for user %s: submitted='%s', stored='%s', match=%s",
-            interaction.user.id,
-            submitted_code,
-            stored_code,
-            submitted_code == stored_code,
-        )
+        stored_code = str(pending["code"]).strip()
 
         if submitted_code != stored_code:
             await interaction.followup.send(
@@ -287,7 +279,7 @@ class VerificationCog(commands.Cog, name="VerificationCog"):
             return
 
         # Assign role
-        guild = self.bot.get_guild(self.guild_id)
+        guild = interaction.guild or self.bot.get_guild(self.guild_id)
         if guild is None:
             self.logger.error("Guild %s not found", self.guild_id)
             await interaction.followup.send(
@@ -296,13 +288,24 @@ class VerificationCog(commands.Cog, name="VerificationCog"):
             )
             return
 
-        member = guild.get_member(interaction.user.id)
+        # In a guild interaction Discord sends the full member object, so
+        # interaction.user is already a Member. Fall back to the cache, then to
+        # an API fetch — get_member alone returns None without the privileged
+        # members intent, which the bot does not request.
+        member = interaction.user
+        if not isinstance(member, discord.Member):
+            member = guild.get_member(interaction.user.id)
         if member is None:
-            self.logger.error(
-                "Member %s not found in guild %s",
-                interaction.user.id,
-                self.guild_id,
-            )
+            try:
+                member = await guild.fetch_member(interaction.user.id)
+            except discord.HTTPException:
+                self.logger.exception(
+                    "Failed to fetch member %s in guild %s",
+                    interaction.user.id,
+                    guild.id,
+                )
+                member = None
+        if member is None:
             await interaction.followup.send(
                 "❌ 無法找到你的成員資料，請聯絡管理員。",
                 ephemeral=True,
