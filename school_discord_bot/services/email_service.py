@@ -60,7 +60,7 @@ class EmailService:
         # aiosmtplib:
         #   use_tls=True  → wraps connection in TLS from the start (port 465 / SMTP_SSL)
         #   start_tls=True → plain connect then upgrades via STARTTLS (port 587)
-        #   both False     → plain SMTP (useful for local dev relays)
+        #   both False     → plain SMTP (useful for local dev relays / OAuth proxies)
         use_tls = self._encryption == "ssl"
         start_tls = self._encryption == "starttls"
 
@@ -70,7 +70,8 @@ class EmailService:
             use_tls=use_tls,
             start_tls=start_tls,
         ) as smtp:
-            # Only authenticate if username and password are provided
+            # Only authenticate if username and password are BOTH provided.
+            # For OAuth proxies like emailproxy, skip login() entirely.
             if self._username and self._password:
                 await smtp.login(self._username, self._password)
             await smtp.send_message(msg)
