@@ -259,18 +259,20 @@ class Database:
         student_id: str,
         code: str,
         expires_at: float,
+        last_sent_at: float,
     ) -> None:
         """Save or overwrite a pending verification record for a Discord user."""
         await self._execute(
             """
-            INSERT INTO student_verifications (user_id, student_id, code, expires_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO student_verifications (user_id, student_id, code, expires_at, last_sent_at)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(user_id) DO UPDATE SET
-                student_id = excluded.student_id,
-                code       = excluded.code,
-                expires_at = excluded.expires_at
+                student_id   = excluded.student_id,
+                code         = excluded.code,
+                expires_at   = excluded.expires_at,
+                last_sent_at = excluded.last_sent_at
             """,
-            (str(user_id), student_id, code, expires_at),
+            (str(user_id), student_id, code, expires_at, last_sent_at),
         )
 
     async def get_pending_verification(self, user_id: str | int) -> dict[str, Any] | None:

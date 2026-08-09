@@ -100,10 +100,11 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
     """,
     """
     CREATE TABLE IF NOT EXISTS student_verifications (
-        user_id    TEXT PRIMARY KEY,
-        student_id TEXT NOT NULL,
-        code       TEXT NOT NULL,
-        expires_at REAL NOT NULL
+        user_id      TEXT PRIMARY KEY,
+        student_id   TEXT NOT NULL,
+        code         TEXT NOT NULL,
+        expires_at   REAL NOT NULL,
+        last_sent_at REAL NOT NULL
     );
     """,
     """

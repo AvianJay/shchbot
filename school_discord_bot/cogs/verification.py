@@ -177,9 +177,24 @@ class VerificationCog(commands.Cog, name="VerificationCog"):
             )
             return
 
-        # Generate 6-digit code
-        code = f"{secrets.randbelow(10**6):06d}"
+        # Rate limiting: check if user sent a request too recently
+        pending = await self.database.get_pending_verification(interaction.user.id)
+        if pending:
+            last_sent = pending.get("last_sent_at", 0)
+            time_since_last = time.time() - last_sent
+            cooldown = 60  # 60 seconds cooldown
+            if time_since_last < cooldown:
+                remaining = int(cooldown - time_since_last)
+                await interaction.followup.send(
+                    f"⏰ 請稍後再試，你需要等待 {remaining} 秒才能重新發送驗證碼。",
+                    ephemeral=True,
+                )
+                return
+
+        # Generate 6-digit code (always 6 digits with leading zeros)
+        code = f"{secrets.randbelow(1000000):06d}"
         expires_at = time.time() + _CODE_EXPIRY_SECONDS
+        last_sent_at = time.time()
 
         # Save pending verification
         await self.database.upsert_pending_verification(
@@ -187,6 +202,7 @@ class VerificationCog(commands.Cog, name="VerificationCog"):
             student_id=student_id,
             code=code,
             expires_at=expires_at,
+            last_sent_at=last_sent_at,
         )
 
         # Send email
@@ -210,7 +226,8 @@ class VerificationCog(commands.Cog, name="VerificationCog"):
 
         await interaction.followup.send(
             f"✅ 已寄送驗證碼到 `{email_address}`\n"
-            f"請在 15 分鐘內點擊「輸入驗證碼」按鈕完成驗證。",
+            f"請在 15 分鐘內點擊「輸入驗證碼」按鈕完成驗證。\n\n"
+            f"💡 如果沒有收到郵件，請檢查垃圾郵件/垃圾信箱資料夾。",
             ephemeral=True,
         )
 

@@ -53,7 +53,7 @@ class Settings:
     smtp_port: int = 587
     smtp_encryption: str = "starttls"  # "ssl" | "starttls" | "none"
     smtp_password: str = ""  # Optional: leave empty if SMTP server doesn't require auth
-    smtp_from_name: str = "大里高中驗證系統"
+    smtp_from_name: str = "興大附中 Discord 驗證系統"
     user_agent: str = (
         "SchoolDiscordBot/0.1 (+https://www.dali.tc.edu.tw/home; "
         "contact: server-admin)"
@@ -109,7 +109,7 @@ class Settings:
         if smtp_encryption not in {"ssl", "starttls", "none"}:
             raise ValueError("SMTP_ENCRYPTION must be 'ssl', 'starttls', or 'none'")
         smtp_password = (os.getenv("SMTP_PASSWORD") or "").strip()
-        smtp_from_name = (os.getenv("SMTP_FROM_NAME") or "大里高中驗證系統").strip()
+        smtp_from_name = (os.getenv("SMTP_FROM_NAME") or "興大附中 Discord 驗證系統").strip()
 
         return cls(
             discord_token=required["DISCORD_TOKEN"] or "",

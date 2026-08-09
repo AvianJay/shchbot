@@ -44,7 +44,7 @@ class EmailService:
             code: The 6-digit one-time verification code.
         """
         msg = EmailMessage()
-        msg["Subject"] = "大里高中 Discord 學生驗證碼"
+        msg["Subject"] = "興大附中 Discord 學生驗證碼"
         msg["From"] = f"{self._from_name} <{self._from_address}>"
         msg["To"] = to_address
         msg.set_content(
@@ -53,8 +53,13 @@ class EmailService:
             f"    {code}\n\n"
             f"請在 15 分鐘內於 Discord 輸入此驗證碼完成驗證。\n"
             f"學號：{student_id}\n\n"
+            f"💡 提醒：如果沒有收到郵件，請檢查垃圾郵件/垃圾信箱資料夾。\n\n"
             f"如果你沒有提出此請求，請忽略此封信件。\n\n"
-            f"大里高中 Discord 機器人"
+            f"──────────────────────────\n"
+            f"興大附中學生 Discord 社群\n\n"
+            f"※ 免責聲明：\n"
+            f"本系統為學生自發性建立之非官方平台，與國立中興大學附屬高級中學無任何隸屬關係。\n"
+            f"所有內容與服務均由學生志願維護，不代表校方立場。"
         )
 
         # aiosmtplib:
