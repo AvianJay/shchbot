@@ -266,10 +266,22 @@ class VerificationCog(commands.Cog, name="VerificationCog"):
             )
             return
 
-        # Check code match
-        if code != pending["code"]:
+        # Check code match (normalize both to strings and strip whitespace)
+        submitted_code = code.strip()
+        stored_code = pending["code"].strip()
+
+        self.logger.info(
+            "Code verification for user %s: submitted='%s', stored='%s', match=%s",
+            interaction.user.id,
+            submitted_code,
+            stored_code,
+            submitted_code == stored_code,
+        )
+
+        if submitted_code != stored_code:
             await interaction.followup.send(
-                "❌ 驗證碼錯誤，請重新輸入。",
+                "❌ 驗證碼錯誤，請重新輸入。\n"
+                "💡 提示：驗證碼為 6 位數字，請確認沒有輸入錯誤。",
                 ephemeral=True,
             )
             return

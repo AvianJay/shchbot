@@ -117,9 +117,35 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
 )
 
 
+_ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("student_verifications", "last_sent_at", "REAL NOT NULL DEFAULT 0"),
+)
+
+
+async def _add_missing_columns(connection: aiosqlite.Connection) -> None:
+    """Add columns introduced after a table was first created.
+
+    ``CREATE TABLE IF NOT EXISTS`` never alters an existing table, so columns
+    added to a schema statement later on are missing from databases created by
+    an earlier version. Each entry is applied only when absent.
+    """
+    for table, column, definition in _ADDED_COLUMNS:
+        async with connection.execute(f"PRAGMA table_info({table})") as cursor:
+            rows = await cursor.fetchall()
+        if not rows:
+            continue
+        existing = {row[1] for row in rows}
+        if column in existing:
+            continue
+        await connection.execute(
+            f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+        )
+
+
 async def apply_migrations(connection: aiosqlite.Connection) -> None:
     for statement in SCHEMA_STATEMENTS:
         await connection.execute(statement)
+    await _add_missing_columns(connection)
     await connection.commit()
     await repair_escaped_urls(connection)
 
