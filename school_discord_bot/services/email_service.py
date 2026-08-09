@@ -70,7 +70,9 @@ class EmailService:
             use_tls=use_tls,
             start_tls=start_tls,
         ) as smtp:
-            await smtp.login(self._username, self._password)
+            # Only authenticate if username and password are provided
+            if self._username and self._password:
+                await smtp.login(self._username, self._password)
             await smtp.send_message(msg)
 
         logger.info(

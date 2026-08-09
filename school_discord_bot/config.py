@@ -44,7 +44,6 @@ class Settings:
     verified_student_role_id: int
     smtp_host: str
     smtp_username: str
-    smtp_password: str
     smtp_from_address: str
     http_timeout_seconds: int = 20
     max_backfill_count: int = 30
@@ -53,6 +52,7 @@ class Settings:
     curriculum_refresh_hours: int = 12
     smtp_port: int = 587
     smtp_encryption: str = "starttls"  # "ssl" | "starttls" | "none"
+    smtp_password: str = ""  # Optional: leave empty if SMTP server doesn't require auth
     smtp_from_name: str = "大里高中驗證系統"
     user_agent: str = (
         "SchoolDiscordBot/0.1 (+https://www.dali.tc.edu.tw/home; "
@@ -70,7 +70,6 @@ class Settings:
             "VERIFIED_STUDENT_ROLE_ID": os.getenv("VERIFIED_STUDENT_ROLE_ID"),
             "SMTP_HOST": os.getenv("SMTP_HOST"),
             "SMTP_USERNAME": os.getenv("SMTP_USERNAME"),
-            "SMTP_PASSWORD": os.getenv("SMTP_PASSWORD"),
             "SMTP_FROM_ADDRESS": os.getenv("SMTP_FROM_ADDRESS"),
         }
         missing = [key for key, value in required.items() if not value]
@@ -109,6 +108,7 @@ class Settings:
         smtp_encryption = (os.getenv("SMTP_ENCRYPTION") or "starttls").strip().lower()
         if smtp_encryption not in {"ssl", "starttls", "none"}:
             raise ValueError("SMTP_ENCRYPTION must be 'ssl', 'starttls', or 'none'")
+        smtp_password = (os.getenv("SMTP_PASSWORD") or "").strip()
         smtp_from_name = (os.getenv("SMTP_FROM_NAME") or "大里高中驗證系統").strip()
 
         return cls(
@@ -134,11 +134,11 @@ class Settings:
             verified_student_role_id=int(required["VERIFIED_STUDENT_ROLE_ID"] or "0"),
             smtp_host=required["SMTP_HOST"] or "",
             smtp_username=required["SMTP_USERNAME"] or "",
-            smtp_password=required["SMTP_PASSWORD"] or "",
             smtp_from_address=required["SMTP_FROM_ADDRESS"] or "",
             curriculum_refresh_hours=curriculum_refresh_hours,
             smtp_port=smtp_port,
             smtp_encryption=smtp_encryption,
+            smtp_password=smtp_password,
             smtp_from_name=smtp_from_name,
         )
 
