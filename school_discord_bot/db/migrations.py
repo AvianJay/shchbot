@@ -122,6 +122,39 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
 )
 
 
+async def _enforce_one_account_per_student(connection: aiosqlite.Connection) -> None:
+    """Ensure each student ID is bound to at most one Discord account.
+
+    SQLite cannot add a UNIQUE constraint to an existing table, so uniqueness is
+    enforced with an index instead. Pre-existing duplicates would make the index
+    creation fail with an opaque error, so they are reported explicitly.
+    """
+    async with connection.execute(
+        """
+        SELECT student_id, COUNT(*) AS bindings
+        FROM verified_students
+        GROUP BY student_id
+        HAVING bindings > 1
+        """
+    ) as cursor:
+        duplicates = await cursor.fetchall()
+
+    if duplicates:
+        detail = ", ".join(f"{row[0]} ({row[1]}x)" for row in duplicates)
+        raise RuntimeError(
+            "cannot enforce one Discord account per student ID: these student "
+            f"IDs are bound to multiple accounts: {detail}. Remove the extra "
+            "rows from verified_students, then restart."
+        )
+
+    await connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_verified_students_student_id
+        ON verified_students (student_id);
+        """
+    )
+
+
 async def _add_missing_columns(connection: aiosqlite.Connection) -> None:
     """Add columns introduced after a table was first created.
 
@@ -146,6 +179,7 @@ async def apply_migrations(connection: aiosqlite.Connection) -> None:
     for statement in SCHEMA_STATEMENTS:
         await connection.execute(statement)
     await _add_missing_columns(connection)
+    await _enforce_one_account_per_student(connection)
     await connection.commit()
     await repair_escaped_urls(connection)
 

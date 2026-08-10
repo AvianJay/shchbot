@@ -290,6 +290,14 @@ class Database:
             (str(user_id),),
         )
 
+    async def get_student_id_owner(self, student_id: str) -> str | None:
+        """Return the Discord user ID already bound to this student ID, or None."""
+        row = await self._fetchone(
+            "SELECT user_id FROM verified_students WHERE student_id = ?",
+            (student_id,),
+        )
+        return row["user_id"] if row else None
+
     async def insert_verified_student(
         self,
         *,

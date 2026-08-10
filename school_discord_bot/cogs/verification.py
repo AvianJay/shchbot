@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import secrets
+import sqlite3
 import time
 
 import discord
@@ -177,6 +178,16 @@ class VerificationCog(commands.Cog, name="VerificationCog"):
             )
             return
 
+        # Reject a student ID that is already bound to a different Discord account
+        owner_id = await self.database.get_student_id_owner(student_id)
+        if owner_id is not None and owner_id != str(interaction.user.id):
+            await interaction.followup.send(
+                f"❌ 學號 `{student_id}` 已經綁定其他 Discord 帳號。\n"
+                "每個學號只能綁定一個帳號，如需更換請聯絡管理員。",
+                ephemeral=True,
+            )
+            return
+
         # Rate limiting: check if user sent a request too recently
         pending = await self.database.get_pending_verification(interaction.user.id)
         if pending:
@@ -278,6 +289,19 @@ class VerificationCog(commands.Cog, name="VerificationCog"):
             )
             return
 
+        # Re-check the binding: two users can both hold a valid code for the same
+        # student ID if they requested before either verified.
+        student_id = pending["student_id"]
+        owner_id = await self.database.get_student_id_owner(student_id)
+        if owner_id is not None and owner_id != str(interaction.user.id):
+            await self.database.delete_pending_verification(interaction.user.id)
+            await interaction.followup.send(
+                f"❌ 學號 `{student_id}` 已經綁定其他 Discord 帳號。\n"
+                "每個學號只能綁定一個帳號，如需更換請聯絡管理員。",
+                ephemeral=True,
+            )
+            return
+
         # Assign role
         guild = interaction.guild or self.bot.get_guild(self.guild_id)
         if guild is None:
@@ -339,13 +363,37 @@ class VerificationCog(commands.Cog, name="VerificationCog"):
             )
             return
 
-        # Complete verification
+        # Complete verification. The unique index on student_id is the final
+        # guard; if a concurrent verification won the race, undo the role grant.
+        try:
+            await self.database.insert_verified_student(
+                user_id=interaction.user.id,
+                student_id=student_id,
+                verified_at=now,
+            )
+        except sqlite3.IntegrityError:
+            self.logger.warning(
+                "Student ID %s already bound; rejecting user %s",
+                student_id,
+                interaction.user.id,
+            )
+            try:
+                await member.remove_roles(role)
+            except Exception:
+                self.logger.exception(
+                    "Failed to roll back role %s for member %s",
+                    self.verified_student_role_id,
+                    interaction.user.id,
+                )
+            await self.database.delete_pending_verification(interaction.user.id)
+            await interaction.followup.send(
+                f"❌ 學號 `{student_id}` 已經綁定其他 Discord 帳號。\n"
+                "每個學號只能綁定一個帳號，如需更換請聯絡管理員。",
+                ephemeral=True,
+            )
+            return
+
         await self.database.delete_pending_verification(interaction.user.id)
-        await self.database.insert_verified_student(
-            user_id=interaction.user.id,
-            student_id=pending["student_id"],
-            verified_at=now,
-        )
 
         await interaction.followup.send(
             f"✅ 驗證成功！已獲得 {role.mention} 身份組。",
