@@ -64,5 +64,12 @@ class CommandTranslator(app_commands.Translator):
             "班級代號，例如 205（不填則查詢你的班級）": "Class code, e.g. 205 (leave blank for your saved class)",
             "send_curriculum": "send_curriculum",
             "將班級課表查詢面板發送到頻道": "Post a class timetable lookup panel to the channel",
+            # Exam countdown
+            "countdown": "countdown",
+            "設定學測倒數語音頻道，每天台灣時間 00:00 更新名稱": "Set a GSAT countdown voice channel, updated daily at Taipei midnight",
+            "channel": "channel",
+            "exam_date": "exam_date",
+            "顯示學測倒數的語音頻道": "Voice channel for the GSAT countdown",
+            "學測第一天的日期，格式 YYYY-MM-DD": "First day of the GSAT exam, in YYYY-MM-DD format",
         }
         return translations.get(str(string))

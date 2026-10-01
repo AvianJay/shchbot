@@ -10,6 +10,7 @@
 - 依公告類別套用 Forum 標籤，失敗時使用 fallback 標籤
 - 支援手動 backfill、dry run、最新公告查詢與關鍵字搜尋
 - 使用繁體中文作為使用者可見文案
+- 管理員設定學測倒數語音頻道，每天台灣時間 00:00 自動更新名稱
 - 不抓取或儲存成績、缺曠、密碼、cookies 或其他私人資料
 
 ## 專案結構
@@ -21,6 +22,7 @@
     config.py
     cogs/
       announcements.py
+      countdown.py
       school_links.py
       admin.py
     services/
@@ -58,7 +60,7 @@ Bot 至少需要以下 Discord 權限：
 - Manage Threads
 - Manage Channels
 
-只有在你要使用 /news sync_tags 自動建立或更新論壇標籤時，才需要 Manage Channels。
+使用 /news sync_tags 自動建立或更新論壇標籤，或 /school countdown 更新語音頻道名稱時，需要 Manage Channels。倒數語音頻道也必須允許 bot 檢視頻道。
 
 ## 環境變數
 
@@ -122,6 +124,8 @@ docker run --env-file .env school-discord-bot
 
 - /school setup
   驗證 guild、forum channel、bot 權限、資料庫與 scraper 狀態。
+- /school countdown channel:語音頻道 exam_date:YYYY-MM-DD
+  設定學測倒數的語音頻道及學測第一天日期。設定後立即更名為「學測倒數 {day} 天」，之後每天台灣時間（UTC+8）00:00 更新。設定保存於 SQLite，重啟或重新連線時會補更新；考試當天及之後顯示 0 天。再次執行可更換頻道或日期。此指令限具有「管理伺服器」或「管理頻道」權限的管理員使用。
 - /news check
   立即抓取並同步最新公告。
 - /news backfill count:int

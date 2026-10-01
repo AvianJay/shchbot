@@ -10,6 +10,7 @@ from discord.ext import commands
 
 from school_discord_bot.cogs.admin import AdminCog
 from school_discord_bot.cogs.announcements import AnnouncementsCog
+from school_discord_bot.cogs.countdown import CountdownCog
 from school_discord_bot.cogs.curriculum import CurriculumCog, CurriculumPanelView, SetMyClassButton
 from school_discord_bot.cogs.verification import VerificationCog, VerificationPanelView
 from school_discord_bot.config import Settings
@@ -76,6 +77,10 @@ class SchoolDiscordBot(commands.Bot):
 
         await self.add_cog(admin_cog)
         await self.add_cog(announcements_cog)
+
+        await self.add_cog(
+            CountdownCog(self, database=self.database, guild_id=self.settings.guild_id)
+        )
 
         curriculum_cog = CurriculumCog(
             self,

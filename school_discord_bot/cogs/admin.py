@@ -5,6 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from school_discord_bot.cogs.announcements import admin_only
+from school_discord_bot.cogs.countdown import CountdownCog, parse_exam_date
 from school_discord_bot.cogs.curriculum import CurriculumCog
 from school_discord_bot.cogs.school_links import SchoolLinksView, build_school_links_embed
 from school_discord_bot.cogs.verification import VerificationCog
@@ -95,6 +96,7 @@ class AdminCog(
         embed.add_field(name="/school links", value="顯示學校常用公開入口", inline=False)
         embed.add_field(name="/school send_links", value="將學校常用公開連結發送到頻道", inline=False)
         embed.add_field(name="/school send_curriculum", value="將班級課表查詢面板發送到頻道", inline=False)
+        embed.add_field(name="/school countdown <channel> <exam_date>", value="設定學測倒數語音頻道及日期，每天台灣時間 00:00 更新", inline=False)
         embed.add_field(name="/課表 <班級>", value="查詢班級今日課表，例如 /課表 205", inline=False)
         embed.add_field(name="/news check", value="立即同步最新公告", inline=False)
         embed.add_field(name="/news backfill", value="補發 bot 啟用前的公告", inline=False)
@@ -104,6 +106,54 @@ class AdminCog(
         embed.add_field(name="/news latest", value="查詢最近公告", inline=False)
         embed.add_field(name="/news search", value="搜尋已保存公告", inline=False)
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="countdown", description="設定學測倒數語音頻道，每天台灣時間 00:00 更新名稱")
+    @app_commands.describe(channel="顯示學測倒數的語音頻道", exam_date="學測第一天的日期，格式 YYYY-MM-DD")
+    @app_commands.guild_only()
+    @admin_only()
+    async def school_countdown(
+        self,
+        interaction: discord.Interaction,
+        channel: discord.VoiceChannel,
+        exam_date: str,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        cog = self.bot.get_cog("CountdownCog")
+        if not isinstance(cog, CountdownCog):
+            await interaction.followup.send("❌ 學測倒數模組尚未載入", ephemeral=True)
+            return
+        try:
+            target_date = parse_exam_date(exam_date)
+            name = await cog.configure(channel, target_date)
+        except ValueError as exc:
+            await interaction.followup.send(f"❌ {exc}", ephemeral=True)
+            return
+        except discord.Forbidden:
+            await interaction.followup.send("❌ 機器人沒有修改此語音頻道名稱的權限。", ephemeral=True)
+            return
+        except discord.NotFound:
+            await interaction.followup.send("❌ 找不到此語音頻道，請重新選擇。", ephemeral=True)
+            return
+        except discord.HTTPException:
+            await interaction.followup.send("❌ Discord 暫時無法更新頻道名稱，請稍後重試。", ephemeral=True)
+            return
+        await interaction.followup.send(
+            f"✅ 已設定 {channel.mention}，名稱為「{name}」。\n"
+            f"學測日期：{target_date.isoformat()}；每天台灣時間 00:00 自動更新。",
+            ephemeral=True,
+        )
+
+    @school_countdown.error
+    async def school_countdown_error(
+        self, interaction: discord.Interaction, error: app_commands.AppCommandError
+    ) -> None:
+        if isinstance(error, app_commands.CheckFailure):
+            await interaction.response.send_message(
+                "❌ 此指令限具有「管理伺服器」或「管理頻道」權限的管理員使用。",
+                ephemeral=True,
+            )
+            return
+        raise error
 
     @app_commands.command(name="send_curriculum", description="將班級課表查詢面板發送到頻道")
     @admin_only()
