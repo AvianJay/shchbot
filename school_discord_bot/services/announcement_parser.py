@@ -158,6 +158,7 @@ def parse_list_json(payload: list[dict[str, Any]], config: WidgetConfig) -> Pars
             raw_payload={"list_item": record},
             view_count=_parse_int(record.get("clicks")),
             inner_tag_text=extract_inner_tag_text(title),
+            pinned=bool(_parse_int(record.get("top"))),
         )
 
         if normalize_text(record.get("content_type")) == "url":

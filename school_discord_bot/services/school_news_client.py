@@ -31,6 +31,9 @@ class ScraperProbeResult:
 class SchoolNewsClient:
     """Fetch and parse the school's public announcement widget and detail pages."""
 
+    # Large enough that the pinned block plus a normal poll window fits in one request.
+    LIST_PAGE_SIZE = 100
+
     def __init__(
         self,
         *,
@@ -106,33 +109,41 @@ class SchoolNewsClient:
         limit: int,
         include_details: bool = True,
     ) -> list[Any]:
+        """Return every pinned announcement plus the ``limit`` newest unpinned ones.
+
+        The school lists all pinned (置頂) announcements before anything else. When
+        they counted toward ``limit``, a long pinned block filled every poll and new
+        unpinned announcements were never seen.
+        """
         collected = []
         seen_hashes: set[str] = set()
+        unpinned_count = 0
         page_num = 0
-        page_size = max(1, min(limit, 30))
 
-        while len(collected) < limit:
-            page = await self.fetch_page(page_num=page_num, max_rows=page_size)
+        while unpinned_count < limit:
+            page = await self.fetch_page(page_num=page_num, max_rows=self.LIST_PAGE_SIZE)
             if not page.announcements:
                 break
 
             for announcement in page.announcements:
                 if announcement.source_hash in seen_hashes:
                     continue
+                if not announcement.pinned:
+                    if unpinned_count >= limit:
+                        continue
+                    unpinned_count += 1
                 seen_hashes.add(announcement.source_hash)
                 collected.append(announcement)
-                if len(collected) >= limit:
-                    break
 
             page_num += 1
             if page.total_pages <= page_num:
                 break
 
         if not include_details:
-            return collected[:limit]
+            return collected
 
         detailed_announcements = []
-        for announcement in collected[:limit]:
+        for announcement in collected:
             detailed_announcements.append(await self.enrich_announcement(announcement))
         return detailed_announcements
 

@@ -138,6 +138,8 @@ class Announcement:
     raw_payload: dict[str, Any] = field(default_factory=dict)
     view_count: int | None = None
     inner_tag_text: str | None = None
+    # 置頂 flag from the list endpoint. Only used while paging the list, so it is not persisted.
+    pinned: bool = False
     content_html: str | None = None
     content_text: str | None = None
     attachments: list[AttachmentLink] = field(default_factory=list)

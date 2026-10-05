@@ -88,6 +88,7 @@ ANNOUNCEMENT_MENTION_TEXT=
 `ANNOUNCEMENT_MENTION_USERS` 控制公告貼文是否允許直接 mention 使用者。
 `ANNOUNCEMENT_MENTION_ROLE_IDS` 可填逗號分隔的角色 ID 名單，只允許這些角色在公告初始訊息中被 mention。
 `ANNOUNCEMENT_MENTION_TEXT` 可填自訂公告前綴，例如 `@everyone`、`<@&1234567890>` 或「新公告來了」。若留空，bot 會自動用 `ANNOUNCEMENT_MENTION_EVERYONE` 與 `ANNOUNCEMENT_MENTION_ROLE_IDS` 產生 mention 前綴。
+只有公告日期是今天或昨天（台灣時間）的貼文才會加上這個前綴；補發的舊公告照常發文但不 mention，避免一次 tag 好幾十次。
 
 注意：不要提交 .env，也不要在 log 中輸出 token。
 
@@ -127,9 +128,9 @@ docker run --env-file .env school-discord-bot
 - /school countdown channel:語音頻道 exam_date:YYYY-MM-DD
   設定學測倒數的語音頻道及學測第一天日期。設定後立即更名為「學測倒數 {day} 天」，之後每天台灣時間（UTC+8）00:00 更新。設定保存於 SQLite，重啟或重新連線時會補更新；考試當天及之後顯示 0 天。再次執行可更換頻道或日期。此指令限具有「管理伺服器」或「管理頻道」權限的管理員使用。
 - /news check
-  立即抓取並同步最新公告。
+  立即抓取並同步最新公告（範圍同背景輪詢：全部置頂公告＋最新 30 篇非置頂公告）。
 - /news backfill count:int
-  補發最新 N 筆公告，預設 5，最多 30。
+  往回檢查最新 N 篇非置頂公告（置頂公告一律檢查），只補發還沒發過的，預設 50，最多 100。補發順序由舊到新。
 - /news status
   顯示上次檢查時間、最後發文公告、資料庫數量與論壇頻道。
 - /news sync_tags

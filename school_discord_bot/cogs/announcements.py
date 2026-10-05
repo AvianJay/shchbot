@@ -22,6 +22,11 @@ def admin_only() -> app_commands.Check:
     return app_commands.check(predicate)
 
 
+def _publication_order(announcement: Announcement) -> tuple[str, int]:
+    source_id = announcement.source_id
+    return (announcement.date.replace("/", "-"), int(source_id) if source_id.isdigit() else 0)
+
+
 @dataclass(slots=True)
 class SyncOutcome:
     scanned: int
@@ -36,6 +41,11 @@ class AnnouncementsCog(
     group_name="news",
     group_description="學校公告同步與查詢指令",
 ):
+    # Unpinned announcements checked on every poll (the pinned block is always scanned on
+    # top of this). The school has posted 22 announcements in a single day, so the window
+    # must outlast a burst between two polls or a few hours of downtime.
+    POLL_WINDOW = 30
+
     def __init__(
         self,
         bot: commands.Bot,
@@ -69,7 +79,11 @@ class AnnouncementsCog(
     async def poll_announcements(self) -> None:
         await self.bot.wait_until_ready()
         try:
-            await self.sync_announcements(limit=5, include_only_unposted=True, dry_run=False)
+            await self.sync_announcements(
+                limit=self.POLL_WINDOW,
+                include_only_unposted=True,
+                dry_run=False,
+            )
         except Exception:
             self.logger.exception("Background announcement polling failed")
 
@@ -90,7 +104,7 @@ class AnnouncementsCog(
         )
         announcements = await self.school_news_client.fetch_latest_announcements(
             limit=limit,
-            include_details=True,
+            include_details=False,
         )
         self.last_check_at = datetime.now(UTC)
 
@@ -100,17 +114,20 @@ class AnnouncementsCog(
         failed_items = 0
         results: list[tuple[Announcement, PostResult]] = []
 
-        for announcement in announcements:
-            is_new = await self.database.save_announcement(announcement)
+        # Oldest first, so a batch of catch-up posts lands in the forum in publication order.
+        for announcement in sorted(announcements, key=_publication_order):
+            stored = await self.database.get_announcement_by_hash(announcement.source_hash)
+            if include_only_unposted and stored is not None and stored.posted_at:
+                continue
+
+            # Each detail fetch costs the school one or two requests, and most of the poll
+            # window is already posted, so details are only fetched for what gets posted.
+            announcement = await self.school_news_client.enrich_announcement(announcement)
+            if await self.database.save_announcement(announcement):
+                new_items += 1
             stored = await self.database.get_announcement_by_hash(announcement.source_hash)
             if stored is None:
                 stored = announcement
-
-            if is_new:
-                new_items += 1
-
-            if include_only_unposted and stored.posted_at:
-                continue
 
             # One bad announcement must not stall the rest of the batch: the poll
             # loop would otherwise retry the same failure every interval and never
@@ -211,16 +228,20 @@ class AnnouncementsCog(
     @admin_only()
     async def news_check(self, interaction: discord.Interaction) -> None:
         await interaction.response.defer(ephemeral=True)
-        outcome = await self.sync_announcements(limit=5, include_only_unposted=True, dry_run=False)
+        outcome = await self.sync_announcements(
+            limit=self.POLL_WINDOW,
+            include_only_unposted=True,
+            dry_run=False,
+        )
         await interaction.followup.send(self._format_sync_outcome(outcome), ephemeral=True)
 
-    @app_commands.command(name="backfill", description="補發 bot 啟用前的最新公告")
+    @app_commands.command(name="backfill", description="補發漏掉或 bot 啟用前的公告")
     @admin_only()
-    @app_commands.describe(count="要補發幾筆公告，預設 5，最多 30")
+    @app_commands.describe(count="往回檢查幾篇最新的非置頂公告（只補發還沒發過的），預設 50，最多 100")
     async def news_backfill(
         self,
         interaction: discord.Interaction,
-        count: app_commands.Range[int, 1, 30] = 5,
+        count: app_commands.Range[int, 1, 100] = 50,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
         outcome = await self.sync_announcements(limit=count, include_only_unposted=True, dry_run=False)
@@ -241,7 +262,8 @@ class AnnouncementsCog(
             return
 
         lines = []
-        for announcement, result in outcome.results:
+        # Results are oldest first; the preview should lead with the newest announcements.
+        for announcement, result in reversed(outcome.results):
             lines.append(
                 f"{result.thread_title} | 標籤：{', '.join(result.applied_tag_names) or '無'} | {announcement.source_url or '無公開連結'}"
             )

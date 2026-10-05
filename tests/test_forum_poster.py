@@ -2,17 +2,30 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 import discord
 from discord.utils import MISSING
 import pytest
 
 from school_discord_bot.models.announcement import Announcement
+from school_discord_bot.services import forum_poster as forum_poster_module
 from school_discord_bot.services.forum_poster import ForumPoster
 
 
 TAIPEI_TZ = timezone(timedelta(hours=8), name="Asia/Taipei")
+
+
+@pytest.fixture
+def school_today(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Freeze the poster's clock at noon on 2026/06/24, school time."""
+
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 6, 24, 12, tzinfo=TAIPEI_TZ).astimezone(tz)
+
+    monkeypatch.setattr(forum_poster_module, "datetime", FrozenDateTime)
 
 
 @dataclass
@@ -79,7 +92,7 @@ def test_post_announcement_omits_none_applied_tags() -> None:
     assert forum.calls[0]["allowed_mentions"].roles is False
 
 
-def test_post_announcement_uses_configured_allowed_mentions() -> None:
+def test_post_announcement_uses_configured_allowed_mentions(school_today: None) -> None:
     allowed_mentions = discord.AllowedMentions(everyone=False, users=False, roles=False, replied_user=False)
     poster = ForumPoster(
         tag_mapper=FakeTagMapper(),
@@ -103,6 +116,37 @@ def test_post_announcement_uses_configured_allowed_mentions() -> None:
 
     assert forum.calls[0]["allowed_mentions"] is allowed_mentions
     assert forum.calls[0]["content"] == "<@&123>\n原始公告：https://example.com/news/1b"
+
+
+@pytest.mark.parametrize(
+    ("date", "mentioned"),
+    [
+        ("2026/06/24", True),  # posted the same day
+        ("2026/06/23", True),  # picked up by a poll shortly after midnight
+        ("2026/06/22", False),  # catch-up post from a backfill
+        ("", True),  # no usable date: keep mentioning as before
+    ],
+)
+def test_initial_message_mentions_only_recent_announcements(
+    school_today: None,
+    date: str,
+    mentioned: bool,
+) -> None:
+    poster = ForumPoster(tag_mapper=FakeTagMapper(), dry_run=False, announcement_mention_prefix="<@&123>")
+    announcement = Announcement(
+        source_id="1c",
+        source_hash="hash-1c",
+        source_url="https://example.com/news/1c",
+        title="補發公告",
+        date=date,
+        category="大學升學",
+        unit="註冊組",
+    )
+
+    message = poster.build_initial_message(announcement)
+
+    assert message.startswith("<@&123>\n") is mentioned
+    assert message.endswith("原始公告：https://example.com/news/1c")
 
 
 def test_build_thread_title_uses_plain_title_without_category_prefix() -> None:

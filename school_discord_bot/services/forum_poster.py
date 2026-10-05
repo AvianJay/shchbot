@@ -29,6 +29,9 @@ class ForumPoster:
     FIELD_VALUE_LIMIT = 1024
     SCHOOL_TIMEZONE = TAIPEI_TZ
     TAG_REQUIRED_ERROR_CODE = 40067
+    # Only announcements dated today or yesterday (school time) carry the mention prefix.
+    # Anything older is a catch-up post, and a backfill must not ping the same roles dozens of times.
+    MENTION_MAX_AGE_DAYS = 1
 
     def __init__(
         self,
@@ -130,7 +133,7 @@ class ForumPoster:
 
     def build_initial_message(self, announcement: Announcement) -> str:
         lines: list[str] = []
-        if self.announcement_mention_prefix:
+        if self.announcement_mention_prefix and self._is_recent(announcement):
             lines.append(self.announcement_mention_prefix)
         source_url = sanitize_url(announcement.source_url)
         if source_url:
@@ -305,6 +308,14 @@ class ForumPoster:
                 except ValueError:
                     continue
         return None
+
+    def _is_recent(self, announcement: Announcement) -> bool:
+        timestamp = self._extract_timestamp(announcement)
+        if timestamp is None:
+            # Without a usable date a catch-up post cannot be told apart, so keep the old behavior.
+            return True
+        age = datetime.now(self.SCHOOL_TIMEZONE).date() - timestamp.date()
+        return age.days <= self.MENTION_MAX_AGE_DAYS
 
     def _extract_first_image_url(self, announcement: Announcement) -> str | None:
         html = (announcement.content_html or "").strip()

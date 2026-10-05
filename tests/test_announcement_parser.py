@@ -96,6 +96,21 @@ def test_parse_list_json_and_detail_json() -> None:
     assert enriched.important_dates == ["115/07/12(日)"]
 
 
+def test_parse_list_json_marks_pinned_announcements() -> None:
+    config = parse_widget_config('var g_unique_id = "widget-id";', WIDGET_URL)
+    page = parse_list_json(
+        [
+            {"pageNum": 0, "maxRows": 3, "totalPages": 1},
+            {"newsId": "19951", "top": 1, "time": "2026/06/30", "title": "置頂公告"},
+            {"newsId": "20410", "top": 0, "time": "2026/10/05", "title": "一般公告"},
+            {"newsId": "20409", "time": "2026/10/02", "title": "沒有 top 欄位"},
+        ],
+        config,
+    )
+
+    assert [announcement.pinned for announcement in page.announcements] == [True, False, False]
+
+
 def test_parse_detail_page_html_fixture() -> None:
     config = parse_widget_config(
         (FIXTURES_DIR / "sample_news_page.html").read_text(encoding="utf-8"),

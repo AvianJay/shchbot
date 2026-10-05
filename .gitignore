@@ -1,5 +1,6 @@
 /.env
 /data
+/.remote_server
 __pycache__/
 *.pyc
 *.pyo
