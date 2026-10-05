@@ -14,9 +14,11 @@ import pytest
 
 from school_discord_bot.cogs.anonymous_board import (
     AnonymousBoardCog,
+    AnonymousPanelView,
     ReasonModal,
     ReviewActionButton,
     SubmissionModal,
+    SubmitButton,
     build_public_embeds,
     build_review_embed,
     review_view,
@@ -476,6 +478,38 @@ def test_review_buttons_follow_post_state() -> None:
     asyncio.run(run())
 
 
+def test_submit_button_is_dynamic_and_opens_the_modal() -> None:
+    async def run() -> None:
+        # Only DynamicItems: a static persistent button would make discord.py
+        # keep one view object alive per published post.
+        view = AnonymousPanelView()
+        assert view.is_persistent()
+        assert all(isinstance(child, discord.ui.DynamicItem) for child in view.children)
+        assert [child.item.custom_id for child in view.children] == ["anon:submit"]
+
+        template = SubmitButton.__discord_ui_compiled_template__
+        assert template.fullmatch("anon:submit") is not None
+        assert template.fullmatch("anon:submit:1") is None
+        button = await SubmitButton.from_custom_id(None, None, template.fullmatch("anon:submit"))
+
+        cog = AnonymousBoardCog(FakeBot([]), database=SimpleNamespace(), guild_id=GUILD_ID)
+        cog.open_submission_modal = AsyncMock()
+        interaction = make_interaction()
+        interaction.client = SimpleNamespace(cogs={"AnonymousBoardCog": cog})
+        await button.callback(interaction)
+        cog.open_submission_modal.assert_awaited_once_with(interaction)
+
+        # discord.py only logs DynamicItem errors; the user must still get a reply.
+        cog.open_submission_modal = AsyncMock(side_effect=RuntimeError("boom"))
+        interaction = make_interaction()
+        interaction.client = SimpleNamespace(cogs={"AnonymousBoardCog": cog})
+        await button.callback(interaction)
+        assert "未預期的錯誤" in last_reply(interaction)
+        assert_private(interaction)
+
+    asyncio.run(run())
+
+
 def test_submission_modal_layout() -> None:
     async def run() -> None:
         categories = [CATEGORY, AnonymousCategory(2, "💌 我要告白")]
@@ -598,6 +632,7 @@ def test_auto_mode_publishes_without_revealing_the_author(tmp_path: Path) -> Non
             files = kwargs["files"]
             assert embeds[0].title == "#1 😡 我要靠北"
             assert [file.filename for file in files] == ["anon_1_1.jpg"]
+            assert [child.item.custom_id for child in kwargs["view"].children] == ["anon:submit"]
             assert kwargs["allowed_mentions"].to_dict() == discord.AllowedMentions.none().to_dict()
             with Image.open(files[0].fp) as image:
                 assert dict(image.getexif()) == {}

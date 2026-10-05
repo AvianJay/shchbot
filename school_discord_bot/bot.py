@@ -12,8 +12,8 @@ from school_discord_bot.cogs.admin import AdminCog
 from school_discord_bot.cogs.announcements import AnnouncementsCog
 from school_discord_bot.cogs.anonymous_board import (
     AnonymousBoardCog,
-    AnonymousPanelView,
     ReviewActionButton,
+    SubmitButton,
 )
 from school_discord_bot.cogs.countdown import CountdownCog
 from school_discord_bot.cogs.curriculum import CurriculumCog, CurriculumPanelView, SetMyClassButton
@@ -125,9 +125,9 @@ class SchoolDiscordBot(commands.Bot):
         self.add_dynamic_items(SetMyClassButton)
         # Register the persistent verification panel view.
         self.add_view(VerificationPanelView())
-        # Register the anonymous-board panel and its per-post review buttons.
-        self.add_view(AnonymousPanelView())
-        self.add_dynamic_items(ReviewActionButton)
+        # Register the anonymous-board submit button (panel and every post) and
+        # the per-post review buttons.
+        self.add_dynamic_items(SubmitButton, ReviewActionButton)
 
         await self.tree.set_translator(CommandTranslator())
         self.tree.copy_global_to(guild=discord.Object(id=self.settings.guild_id))

@@ -421,42 +421,57 @@ class ReasonModal(discord.ui.Modal):
 
 
 # ---------------------------------------------------------------------------
-# Persistent submission panel
+# Submission button (on the panel and under every published post)
 # ---------------------------------------------------------------------------
 
 
-class SubmitButton(discord.ui.Button):
+class SubmitButton(discord.ui.DynamicItem[discord.ui.Button], template=r"anon:submit"):
+    """Opens the submission modal.
+
+    A DynamicItem rather than a plain persistent button because it goes under
+    every published post: discord.py keeps a view object per message for each
+    static persistent view it sends, which would pile up one per post, while
+    dynamic items are matched by ``custom_id`` alone and retain nothing.
+    """
+
     def __init__(self) -> None:
         super().__init__(
-            label="匿名投稿",
-            emoji="✍️",
-            custom_id=CUSTOM_SUBMIT,
-            style=discord.ButtonStyle.primary,
+            discord.ui.Button(
+                label="匿名投稿",
+                emoji="✍️",
+                custom_id=CUSTOM_SUBMIT,
+                style=discord.ButtonStyle.primary,
+            )
         )
+
+    @classmethod
+    async def from_custom_id(
+        cls,
+        interaction: discord.Interaction,
+        item: discord.ui.Button,
+        match: re.Match[str],
+    ) -> "SubmitButton":
+        return cls()
 
     async def callback(self, interaction: discord.Interaction) -> None:
         cog = interaction.client.cogs.get("AnonymousBoardCog")
         if not isinstance(cog, AnonymousBoardCog):
             await interaction.response.send_message("❌ 匿名版模組尚未載入", ephemeral=True)
             return
-        await cog.open_submission_modal(interaction)
+        # Errors raised from a DynamicItem are only logged by discord.py.
+        try:
+            await cog.open_submission_modal(interaction)
+        except Exception:
+            logger.exception("Anonymous board submit button failed")
+            await _reply(interaction, _GENERIC_ERROR)
 
 
 class AnonymousPanelView(discord.ui.View):
-    """Persistent panel with the single submission button."""
+    """The submission button, as sent on the panel and under each post."""
 
     def __init__(self) -> None:
         super().__init__(timeout=None)
         self.add_item(SubmitButton())
-
-    async def on_error(
-        self,
-        interaction: discord.Interaction,
-        error: Exception,
-        item: discord.ui.Item[Any],
-    ) -> None:
-        logger.error("Anonymous board panel interaction failed", exc_info=error)
-        await _reply(interaction, _GENERIC_ERROR)
 
 
 # ---------------------------------------------------------------------------
@@ -771,6 +786,7 @@ class AnonymousBoardCog(
                         filenames=filenames,
                         published_at=datetime.fromtimestamp(now, tz=UTC),
                     ),
+                    view=AnonymousPanelView(),
                     allowed_mentions=discord.AllowedMentions.none(),
                     **kwargs,
                 )
