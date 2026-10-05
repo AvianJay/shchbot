@@ -114,6 +114,38 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         verified_at REAL NOT NULL
     );
     """,
+    """
+    CREATE TABLE IF NOT EXISTS anonymous_categories (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        name       TEXT NOT NULL UNIQUE,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS anonymous_posts (
+        id                INTEGER PRIMARY KEY AUTOINCREMENT,
+        author_id         TEXT NOT NULL,
+        author_name       TEXT NOT NULL DEFAULT '',
+        category_name     TEXT NOT NULL,
+        content           TEXT NOT NULL,
+        image_count       INTEGER NOT NULL DEFAULT 0,
+        status            TEXT NOT NULL DEFAULT 'pending'
+                          CHECK (status IN ('pending', 'published', 'rejected', 'removed')),
+        public_number     INTEGER UNIQUE,
+        public_channel_id INTEGER,
+        public_message_id INTEGER,
+        review_channel_id INTEGER,
+        review_message_id INTEGER,
+        moderator_id      TEXT,
+        moderator_reason  TEXT,
+        created_at        REAL NOT NULL,
+        moderated_at      REAL
+    );
+    """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_anonymous_posts_author
+    ON anonymous_posts (author_id, created_at DESC);
+    """,
 )
 
 

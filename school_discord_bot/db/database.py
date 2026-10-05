@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Iterable
 from pathlib import Path
+import sqlite3
 from typing import Any
 
 import aiosqlite
 
 from school_discord_bot.db.migrations import apply_migrations
 from school_discord_bot.models.announcement import Announcement
+from school_discord_bot.models.anonymous_board import (
+    AnonymousCategory,
+    AnonymousPost,
+    PostStatus,
+)
 from school_discord_bot.models.curriculum import ClassTimetable
 
 
@@ -347,11 +354,242 @@ class Database:
         rows = await self._fetchall("SELECT * FROM tag_mappings ORDER BY category ASC")
         return {str(row["category"]): dict(row) for row in rows}
 
-    async def _execute(self, query: str, params: tuple[Any, ...] = ()) -> None:
+    async def list_anonymous_categories(self) -> list[AnonymousCategory]:
+        rows = await self._fetchall(
+            "SELECT id, name FROM anonymous_categories ORDER BY id ASC"
+        )
+        return [AnonymousCategory.from_database_row(row) for row in rows]
+
+    async def count_anonymous_categories(self) -> int:
+        row = await self._fetchone("SELECT COUNT(*) AS total FROM anonymous_categories")
+        return int(row["total"] if row is not None else 0)
+
+    async def add_anonymous_category(self, name: str) -> bool:
+        """Add a category; return False if one with this name already exists."""
+        try:
+            await self._execute(
+                "INSERT INTO anonymous_categories (name) VALUES (?)",
+                (name,),
+            )
+        except sqlite3.IntegrityError:
+            return False
+        return True
+
+    async def remove_anonymous_category(self, name: str) -> bool:
+        removed = await self._execute(
+            "DELETE FROM anonymous_categories WHERE name = ?",
+            (name,),
+        )
+        return removed > 0
+
+    async def seed_anonymous_categories(self, names: Iterable[str]) -> None:
+        for name in names:
+            await self._execute(
+                "INSERT OR IGNORE INTO anonymous_categories (name) VALUES (?)",
+                (name,),
+            )
+
+    async def create_anonymous_post(
+        self,
+        *,
+        author_id: str | int,
+        author_name: str,
+        category_name: str,
+        content: str,
+        image_count: int,
+        created_at: float,
+        cooldown_seconds: float,
+    ) -> int | None:
+        """Insert a pending post unless the author posted within the cooldown.
+
+        The cooldown check and the insert are a single statement, so two modals
+        submitted at the same moment cannot both slip through. Returns the new
+        post ID, or None while the author is still cooling down.
+        """
+        return await self._insert(
+            """
+            INSERT INTO anonymous_posts (
+                author_id, author_name, category_name, content, image_count, status, created_at
+            )
+            SELECT ?, ?, ?, ?, ?, 'pending', ?
+            WHERE NOT EXISTS (
+                SELECT 1 FROM anonymous_posts
+                WHERE author_id = ? AND created_at > ?
+            )
+            """,
+            (
+                str(author_id),
+                author_name,
+                category_name,
+                content,
+                image_count,
+                created_at,
+                str(author_id),
+                created_at - cooldown_seconds,
+            ),
+        )
+
+    async def get_anonymous_post(self, post_id: int) -> AnonymousPost | None:
+        row = await self._fetchone(
+            "SELECT * FROM anonymous_posts WHERE id = ?",
+            (post_id,),
+        )
+        return AnonymousPost.from_database_row(row) if row else None
+
+    async def get_last_anonymous_post_at(self, author_id: str | int) -> float | None:
+        row = await self._fetchone(
+            "SELECT MAX(created_at) AS last_at FROM anonymous_posts WHERE author_id = ?",
+            (str(author_id),),
+        )
+        if row is None or row["last_at"] is None:
+            return None
+        return float(row["last_at"])
+
+    async def set_anonymous_post_review_message(
+        self,
+        post_id: int,
+        *,
+        channel_id: int,
+        message_id: int,
+    ) -> None:
+        await self._execute(
+            """
+            UPDATE anonymous_posts
+            SET review_channel_id = ?,
+                review_message_id = ?
+            WHERE id = ?
+            """,
+            (channel_id, message_id, post_id),
+        )
+
+    async def delete_anonymous_post(self, post_id: int) -> None:
+        await self._execute("DELETE FROM anonymous_posts WHERE id = ?", (post_id,))
+
+    async def next_anonymous_public_number(self) -> int:
+        row = await self._fetchone(
+            "SELECT COALESCE(MAX(public_number), 0) + 1 AS next_number FROM anonymous_posts"
+        )
+        return int(row["next_number"]) if row is not None else 1
+
+    async def mark_anonymous_post_published(
+        self,
+        post_id: int,
+        *,
+        public_number: int,
+        channel_id: int,
+        message_id: int,
+        moderator_id: str | int | None,
+        moderated_at: float,
+    ) -> bool:
+        """Record a pending post as published; return False if it was not pending."""
+        changed = await self._execute(
+            """
+            UPDATE anonymous_posts
+            SET status = 'published',
+                public_number = ?,
+                public_channel_id = ?,
+                public_message_id = ?,
+                moderator_id = ?,
+                moderator_reason = NULL,
+                moderated_at = ?
+            WHERE id = ? AND status = 'pending'
+            """,
+            (
+                public_number,
+                channel_id,
+                message_id,
+                str(moderator_id) if moderator_id is not None else None,
+                moderated_at,
+                post_id,
+            ),
+        )
+        return changed == 1
+
+    async def mark_anonymous_post_rejected(
+        self,
+        post_id: int,
+        *,
+        moderator_id: str | int,
+        reason: str | None,
+        moderated_at: float,
+    ) -> bool:
+        """Record a pending post as rejected; return False if it was not pending."""
+        return await self._moderate_anonymous_post(
+            post_id,
+            from_status=PostStatus.PENDING,
+            to_status=PostStatus.REJECTED,
+            moderator_id=moderator_id,
+            reason=reason,
+            moderated_at=moderated_at,
+        )
+
+    async def mark_anonymous_post_removed(
+        self,
+        post_id: int,
+        *,
+        moderator_id: str | int,
+        reason: str | None,
+        moderated_at: float,
+    ) -> bool:
+        """Record a published post as taken down; return False if it was not published."""
+        return await self._moderate_anonymous_post(
+            post_id,
+            from_status=PostStatus.PUBLISHED,
+            to_status=PostStatus.REMOVED,
+            moderator_id=moderator_id,
+            reason=reason,
+            moderated_at=moderated_at,
+        )
+
+    async def count_anonymous_posts(self, status: PostStatus) -> int:
+        row = await self._fetchone(
+            "SELECT COUNT(*) AS total FROM anonymous_posts WHERE status = ?",
+            (str(status),),
+        )
+        return int(row["total"] if row is not None else 0)
+
+    async def _moderate_anonymous_post(
+        self,
+        post_id: int,
+        *,
+        from_status: PostStatus,
+        to_status: PostStatus,
+        moderator_id: str | int,
+        reason: str | None,
+        moderated_at: float,
+    ) -> bool:
+        changed = await self._execute(
+            """
+            UPDATE anonymous_posts
+            SET status = ?,
+                moderator_id = ?,
+                moderator_reason = ?,
+                moderated_at = ?
+            WHERE id = ? AND status = ?
+            """,
+            (str(to_status), str(moderator_id), reason, moderated_at, post_id, str(from_status)),
+        )
+        return changed == 1
+
+    async def _execute(self, query: str, params: tuple[Any, ...] = ()) -> int:
+        """Run a write statement and return the number of rows it changed."""
         connection = self._require_connection()
         async with self._write_lock:
-            await connection.execute(query, params)
+            cursor = await connection.execute(query, params)
             await connection.commit()
+            return cursor.rowcount
+
+    async def _insert(self, query: str, params: tuple[Any, ...] = ()) -> int | None:
+        """Run an INSERT and return the new row ID, or None if no row was inserted.
+
+        ``lastrowid`` is left stale when a conditional ``INSERT … SELECT`` inserts
+        nothing, so it is only trusted when exactly one row went in.
+        """
+        connection = self._require_connection()
+        async with self._write_lock:
+            cursor = await connection.execute(query, params)
+            await connection.commit()
+            return cursor.lastrowid if cursor.rowcount == 1 else None
 
     async def _fetchone(
         self,
