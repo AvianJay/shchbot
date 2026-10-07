@@ -71,6 +71,10 @@ class CommandTranslator(app_commands.Translator):
             "exam_date": "exam_date",
             "顯示學測倒數的語音頻道": "Voice channel for the GSAT countdown",
             "學測第一天的日期，格式 YYYY-MM-DD": "First day of the GSAT exam, in YYYY-MM-DD format",
+            "subject_countdown": "subject_countdown",
+            "設定分科倒數，每天台灣時間 00:00 更新，可新增語音頻道": "Set a subject exam countdown, updated at Taipei midnight, with an optional new voice channel",
+            "分科測驗第一天的日期，格式 YYYY-MM-DD": "First day of the subject exam, in YYYY-MM-DD format",
+            "顯示分科倒數的語音頻道，不填則新增頻道": "Voice channel for the subject exam countdown (leave blank to create one)",
             # Anonymous board
             "anon": "anon",
             "匿名版管理指令": "Anonymous board admin commands",

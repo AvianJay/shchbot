@@ -12,7 +12,7 @@ import pytest
 
 from school_discord_bot.cogs import countdown as countdown_module
 from school_discord_bot.cogs.admin import AdminCog
-from school_discord_bot.cogs.countdown import CountdownCog, countdown_channel_name, parse_exam_date
+from school_discord_bot.cogs.countdown import CountdownCog, ExamType, countdown_channel_name, parse_exam_date
 from school_discord_bot.db.database import Database
 from school_discord_bot.models.curriculum import TAIPEI_TZ
 
@@ -21,13 +21,12 @@ NOW = datetime(2027, 1, 1, 12, tzinfo=TAIPEI_TZ)
 EXAM_DATE = date(2027, 1, 17)  # Synthetic test date, not an official exam schedule.
 
 
-@pytest.fixture
-def channel():
+def _voice_channel(channel_id: int):
     voice = MagicMock(spec=discord.VoiceChannel)
-    voice.id = 123
+    voice.id = channel_id
     voice.guild = SimpleNamespace(id=456, me=object())
     voice.name = "原本的語音頻道"
-    voice.mention = "<#123>"
+    voice.mention = f"<#{channel_id}>"
     voice.permissions_for.return_value = discord.Permissions(view_channel=True, manage_channels=True)
 
     async def edit(**kwargs):
@@ -35,6 +34,16 @@ def channel():
 
     voice.edit = AsyncMock(side_effect=edit)
     return voice
+
+
+@pytest.fixture
+def channel():
+    return _voice_channel(123)
+
+
+@pytest.fixture
+def subject_channel():
+    return _voice_channel(124)
 
 
 @pytest.fixture
@@ -66,6 +75,7 @@ def test_valid_exam_date() -> None:
     assert parse_exam_date("2028-02-29") == date(2028, 2, 29)
 
 
+@pytest.mark.parametrize("exam_type", list(ExamType))
 @pytest.mark.parametrize(
     ("now", "expected"),
     [
@@ -75,8 +85,8 @@ def test_valid_exam_date() -> None:
         (datetime(2027, 1, 18, 16, 0, tzinfo=UTC), "學測倒數 0 天"),
     ],
 )
-def test_countdown_changes_at_taipei_midnight(now: datetime, expected: str) -> None:
-    assert countdown_channel_name(EXAM_DATE, now=now) == expected
+def test_countdown_changes_at_taipei_midnight(now: datetime, expected: str, exam_type: ExamType) -> None:
+    assert countdown_channel_name(EXAM_DATE, now=now, exam_type=exam_type) == expected.replace("學測", exam_type)
 
 
 def test_next_update_is_taipei_midnight(bot) -> None:
@@ -120,7 +130,9 @@ def test_configure_persists_and_restart_refreshes(tmp_path: Path, bot, channel) 
 def test_daily_refresh_fetches_uncached_channel_and_clamps_past_date(bot, channel) -> None:
     async def run() -> None:
         database = SimpleNamespace(
-            get_setting=AsyncMock(return_value=json.dumps({"channel_id": 123, "exam_date": "2026-12-31"}))
+            get_setting=AsyncMock(side_effect=lambda key: (
+                json.dumps({"channel_id": 123, "exam_date": "2026-12-31"}) if key == "gsat_countdown:456" else None
+            ))
         )
         bot.get_channel.return_value = None
         cog = CountdownCog(bot, database=database, guild_id=456)
@@ -147,7 +159,7 @@ def test_unconfigured_countdown_does_nothing(bot, channel) -> None:
 @pytest.mark.parametrize("problem", ["permissions", "guild", "type", "past_date", "forbidden"])
 def test_failed_setup_preserves_previous_configuration(problem: str, bot, channel) -> None:
     async def run() -> None:
-        database = SimpleNamespace(set_setting=AsyncMock())
+        database = SimpleNamespace(set_setting=AsyncMock(), get_setting=AsyncMock(return_value=None))
         cog = CountdownCog(bot, database=database, guild_id=456)
         target = channel
         target_date = EXAM_DATE
@@ -175,7 +187,9 @@ def test_failed_setup_preserves_previous_configuration(problem: str, bot, channe
 def test_deleted_channel_does_not_prevent_later_refresh(bot, channel, caplog) -> None:
     async def run() -> None:
         database = SimpleNamespace(
-            get_setting=AsyncMock(return_value=json.dumps({"channel_id": 123, "exam_date": "2027-01-17"}))
+            get_setting=AsyncMock(side_effect=lambda key: (
+                json.dumps({"channel_id": 123, "exam_date": "2027-01-17"}) if key == "gsat_countdown:456" else None
+            ))
         )
         bot.get_channel.return_value = None
         bot.fetch_channel.side_effect = [
@@ -191,24 +205,28 @@ def test_deleted_channel_does_not_prevent_later_refresh(bot, channel, caplog) ->
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("command_name", ["school_countdown", "school_subject_countdown"])
 @pytest.mark.parametrize(
     ("manage_guild", "manage_channels", "allowed"),
     [(False, False, False), (True, False, True), (False, True, True)],
 )
-def test_only_administrators_can_configure(manage_guild: bool, manage_channels: bool, allowed: bool) -> None:
+def test_only_administrators_can_configure(
+    manage_guild: bool, manage_channels: bool, allowed: bool, command_name: str
+) -> None:
     interaction = SimpleNamespace(
         user=SimpleNamespace(guild_permissions=discord.Permissions(manage_guild=manage_guild, manage_channels=manage_channels))
     )
-    command = AdminCog.school_countdown
+    command = getattr(AdminCog, command_name)
     assert command.guild_only
-    assert command.parameters[0].channel_types == [discord.ChannelType.voice]
+    assert next(p for p in command.parameters if p.name == "channel").channel_types == [discord.ChannelType.voice]
     assert asyncio.run(command.checks[0](interaction)) is allowed
 
 
+@pytest.mark.parametrize("exam_type", list(ExamType))
 @pytest.mark.parametrize("exam_date", ["2027-01-17", "2027/01/17"])
-def test_setup_command_reports_result_privately(exam_date: str, bot, channel) -> None:
+def test_setup_command_reports_result_privately(exam_date: str, bot, channel, exam_type: ExamType) -> None:
     async def run() -> None:
-        database = SimpleNamespace(set_setting=AsyncMock())
+        database = SimpleNamespace(set_setting=AsyncMock(), get_setting=AsyncMock(return_value=None))
         countdown = CountdownCog(bot, database=database, guild_id=456)
         bot.get_cog = Mock(return_value=countdown)
         admin = AdminCog(
@@ -216,20 +234,157 @@ def test_setup_command_reports_result_privately(exam_date: str, bot, channel) ->
             tag_mapper=Mock(), guild_id=456, forum_channel_id=789, dry_run=False,
         )
         interaction = SimpleNamespace(
+            guild=channel.guild,
             response=SimpleNamespace(defer=AsyncMock()),
             followup=SimpleNamespace(send=AsyncMock()),
         )
-        await AdminCog.school_countdown.callback(admin, interaction, channel, exam_date)
+        if exam_type == ExamType.GSAT:
+            await AdminCog.school_countdown.callback(admin, interaction, channel, exam_date)
+        else:
+            await AdminCog.school_subject_countdown.callback(admin, interaction, exam_date, channel)
         interaction.response.defer.assert_awaited_once_with(ephemeral=True)
         message = interaction.followup.send.await_args.args[0]
         assert interaction.followup.send.await_args.kwargs["ephemeral"]
         if exam_date == "2027-01-17":
-            assert "學測倒數 16 天" in message
+            assert f"{exam_type}倒數 16 天" in message
             assert "00:00" in message
             database.set_setting.assert_awaited_once()
         else:
             assert "YYYY-MM-DD" in message
             database.set_setting.assert_not_awaited()
             channel.edit.assert_not_awaited()
+
+    asyncio.run(run())
+
+
+def test_both_countdowns_persist_independently(tmp_path: Path, bot, channel, subject_channel) -> None:
+    async def run() -> None:
+        database = Database(tmp_path / "countdowns.sqlite3")
+        await database.initialize()
+        bot.get_channel.side_effect = {123: channel, 124: subject_channel}.get
+        try:
+            cog = CountdownCog(bot, database=database, guild_id=456)
+            await cog.configure(channel, EXAM_DATE)
+            gsat_before = await database.get_setting("gsat_countdown:456")
+            await cog.configure_subject(subject_channel.guild, date(2027, 7, 10), subject_channel)
+            assert await database.get_setting("gsat_countdown:456") == gsat_before
+            assert json.loads(await database.get_setting("subject_countdown:456")) == {
+                "channel_id": 124, "exam_date": "2027-07-10",
+            }
+            await database.close()
+            await database.initialize()
+
+            channel.name = subject_channel.name = "等待更新"
+            restarted = CountdownCog(bot, database=database, guild_id=456)
+            await restarted.on_ready()
+            assert channel.name == "學測倒數 16 天"
+            assert subject_channel.name == "分科倒數 190 天"
+
+            await restarted.configure_subject(subject_channel.guild, date(2027, 7, 11), subject_channel)
+            assert subject_channel.name == "分科倒數 191 天"
+            assert channel.name == "學測倒數 16 天"
+            assert await database.get_setting("gsat_countdown:456") == gsat_before
+        finally:
+            await database.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("exam_type", list(ExamType))
+def test_countdowns_cannot_share_a_channel(tmp_path: Path, bot, channel, exam_type: ExamType) -> None:
+    async def run() -> None:
+        database = Database(tmp_path / "countdowns.sqlite3")
+        await database.initialize()
+        try:
+            cog = CountdownCog(bot, database=database, guild_id=456)
+            other_type = next(kind for kind in ExamType if kind != exam_type)
+            original_name = await cog.configure(channel, EXAM_DATE, exam_type=other_type)
+            original_config = await database.get_setting(cog.setting_keys[other_type])
+            channel.edit.reset_mock()
+            with pytest.raises(ValueError, match="不同的語音頻道"):
+                await cog.configure(channel, EXAM_DATE, exam_type=exam_type)
+            assert channel.name == original_name
+            channel.edit.assert_not_awaited()
+            assert await database.get_setting(cog.setting_keys[other_type]) == original_config
+            assert await database.get_setting(cog.setting_keys[exam_type]) is None
+        finally:
+            await database.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("broken", ["deleted", "malformed"])
+def test_failed_gsat_does_not_block_subject_update(bot, subject_channel, broken: str) -> None:
+    async def run() -> None:
+        stored = {
+            "gsat_countdown:456": "invalid JSON" if broken == "malformed" else json.dumps({"channel_id": 123, "exam_date": "2027-01-17"}),
+            "subject_countdown:456": json.dumps({"channel_id": 124, "exam_date": "2027-01-17"}),
+        }
+        database = SimpleNamespace(get_setting=AsyncMock(side_effect=stored.get))
+        bot.get_channel.side_effect = {124: subject_channel}.get
+        bot.fetch_channel.side_effect = discord.NotFound(SimpleNamespace(status=404, reason="Not Found"), "")
+        cog = CountdownCog(bot, database=database, guild_id=456)
+        await cog.daily_countdown()
+        assert subject_channel.name == "分科倒數 16 天"
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("exam_date", ["2027-01-17", "2027/01/17", "2026-12-31"])
+def test_subject_command_creates_a_new_channel_only_for_valid_setup(exam_date: str, bot, subject_channel) -> None:
+    async def run() -> None:
+        async def create(name, **kwargs):
+            subject_channel.name = name
+            return subject_channel
+
+        guild = subject_channel.guild
+        guild.create_voice_channel = AsyncMock(side_effect=create)
+        database = SimpleNamespace(set_setting=AsyncMock(), get_setting=AsyncMock(return_value=None))
+        cog = CountdownCog(bot, database=database, guild_id=456)
+        bot.get_cog = Mock(return_value=cog)
+        admin = AdminCog(
+            bot, database=database, school_news_client=Mock(), forum_poster=Mock(),
+            tag_mapper=Mock(), guild_id=456, forum_channel_id=789, dry_run=False,
+        )
+        interaction = SimpleNamespace(
+            guild=guild,
+            response=SimpleNamespace(defer=AsyncMock()),
+            followup=SimpleNamespace(send=AsyncMock()),
+        )
+        command = AdminCog.school_subject_countdown
+        assert not next(p for p in command.parameters if p.name == "channel").required
+        await command.callback(admin, interaction, exam_date)
+        interaction.followup.send.assert_awaited_once()
+        assert interaction.followup.send.await_args.kwargs["ephemeral"]
+        if exam_date == "2027-01-17":
+            guild.create_voice_channel.assert_awaited_once_with("分科倒數 16 天", reason="新增分科倒數語音頻道")
+            assert "分科倒數 16 天" in interaction.followup.send.await_args.args[0]
+            assert database.set_setting.await_args.args[0] == "subject_countdown:456"
+            assert json.loads(database.set_setting.await_args.args[1])["channel_id"] == 124
+        else:
+            guild.create_voice_channel.assert_not_awaited()
+            database.set_setting.assert_not_awaited()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("existing_channel", [False, True])
+def test_failed_setup_removes_only_a_newly_created_channel(bot, subject_channel, existing_channel: bool) -> None:
+    async def run() -> None:
+        guild = subject_channel.guild
+        guild.create_voice_channel = AsyncMock(return_value=subject_channel)
+        database = SimpleNamespace(
+            get_setting=AsyncMock(return_value=None),
+            set_setting=AsyncMock(side_effect=RuntimeError("Database unavailable")),
+        )
+        cog = CountdownCog(bot, database=database, guild_id=456)
+        with pytest.raises(RuntimeError, match="Database unavailable"):
+            await cog.configure_subject(guild, EXAM_DATE, subject_channel if existing_channel else None)
+        if existing_channel:
+            guild.create_voice_channel.assert_not_awaited()
+            subject_channel.delete.assert_not_awaited()
+        else:
+            guild.create_voice_channel.assert_awaited_once()
+            subject_channel.delete.assert_awaited_once()
 
     asyncio.run(run())

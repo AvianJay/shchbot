@@ -10,7 +10,7 @@
 - 依公告類別套用 Forum 標籤，失敗時使用 fallback 標籤
 - 支援手動 backfill、dry run、最新公告查詢與關鍵字搜尋
 - 使用繁體中文作為使用者可見文案
-- 管理員設定學測倒數語音頻道，每天台灣時間 00:00 自動更新名稱
+- 管理員設定學測及分科倒數，各使用獨立語音頻道，每天台灣時間 00:00 自動更新名稱
 - 匿名版：學生透過面板按鈕分類投稿、可附圖片，管理員可設定是否審核後才發布
 - 不抓取或儲存成績、缺曠、密碼、cookies 或其他私人資料
 
@@ -64,7 +64,7 @@ Bot 至少需要以下 Discord 權限：
 - Manage Threads
 - Manage Channels
 
-使用 /news sync_tags 自動建立或更新論壇標籤，或 /school countdown 更新語音頻道名稱時，需要 Manage Channels。倒數語音頻道也必須允許 bot 檢視頻道。
+使用 /news sync_tags 自動建立或更新論壇標籤，或 /school countdown、/school subject_countdown 管理倒數語音頻道時，需要 Manage Channels。倒數語音頻道也必須允許 bot 檢視頻道；讓 bot 新增分科頻道時，需有伺服器層級的 Manage Channels 權限。
 
 匿名版的頻道權限（/anon setup 會逐項檢查）：
 
@@ -137,6 +137,8 @@ docker run --env-file .env school-discord-bot
   驗證 guild、forum channel、bot 權限、資料庫與 scraper 狀態。
 - /school countdown channel:語音頻道 exam_date:YYYY-MM-DD
   設定學測倒數的語音頻道及學測第一天日期。設定後立即更名為「學測倒數 {day} 天」，之後每天台灣時間（UTC+8）00:00 更新。設定保存於 SQLite，重啟或重新連線時會補更新；考試當天及之後顯示 0 天。再次執行可更換頻道或日期。此指令限具有「管理伺服器」或「管理頻道」權限的管理員使用。
+- /school subject_countdown exam_date:YYYY-MM-DD channel:語音頻道（選填）
+  設定分科測驗第一天日期，名稱為「分科倒數 {day} 天」。未指定 channel 時，bot 會新增一個語音頻道；也可指定現有語音頻道。學測與分科必須使用不同頻道，設定獨立保存；兩者皆每天台灣時間 00:00 更新，重啟或重新連線時補更新，考試當天及之後顯示 0 天。管理員權限要求與學測倒數相同。
 - /anon setup public_channel:文字頻道 review_channel:文字頻道 require_review:bool
   設定匿名版的匿名頻道（公開發布）、後台頻道（審核與紀錄，會顯示投稿者）與是否需要審核，`require_review` 預設為是。兩個頻道不能相同，後台頻道不能讓 @everyone 看到。首次設定會建立預設分類。再次執行可更換設定。
 - /anon send_panel
