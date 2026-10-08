@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 from datetime import UTC, datetime
 import io
 import logging
@@ -540,15 +541,76 @@ class AnonymousBoardCog(
     ) -> bool:
         """Validate and save the settings; return True if default categories were created."""
         self._validate_channels(public, review)
-        first_setup = await self.get_config() is None
+        current = await self.get_config()
         await self.database.set_setting(
             setting_key(self.guild_id),
-            AnonymousBoardConfig(public.id, review.id, require_review).to_json(),
+            AnonymousBoardConfig(
+                public.id,
+                review.id,
+                require_review,
+                # Re-running setup keeps the notification role set by /anon notify.
+                notify_role_id=current.notify_role_id if current else None,
+            ).to_json(),
         )
-        if first_setup and await self.database.count_anonymous_categories() == 0:
+        if current is None and await self.database.count_anonymous_categories() == 0:
             await self.database.seed_anonymous_categories(DEFAULT_CATEGORIES)
             return True
         return False
+
+    def _validate_notify_role(self, role: discord.Role, config: AnonymousBoardConfig) -> None:
+        if role.guild.id != self.guild_id:
+            raise ValueError("請選擇此伺服器的身分組。")
+        if role.is_default():
+            raise ValueError("不能選擇 @everyone，請建立一個專用的通知身分組。")
+        if role.mentionable:
+            return
+        # An unmentionable role is only pinged if the bot may mention all roles;
+        # otherwise the mention renders but nobody is notified.
+        me = role.guild.me
+        channel = self.bot.get_channel(config.public_channel_id)
+        if isinstance(channel, discord.TextChannel):
+            can_mention_all = channel.permissions_for(me).mention_everyone
+        else:
+            can_mention_all = me.guild_permissions.mention_everyone
+        if not can_mention_all:
+            raise ValueError(
+                f"身分組「{role.name}」不允許被提及。請在身分組設定開啟「允許任何人 @提及此身分組」，"
+                "或給機器人匿名頻道的「提及 @everyone、@here 和所有身分組」權限。"
+            )
+
+    async def set_notify_role(self, role: discord.Role | None) -> None:
+        """Set the role mentioned on each published post, or clear it with None."""
+        config = await self.get_config()
+        if config is None:
+            raise ValueError("匿名版尚未設定，請先執行 /anon setup。")
+        if role is not None:
+            self._validate_notify_role(role, config)
+        await self.database.set_setting(
+            setting_key(self.guild_id),
+            dataclasses.replace(config, notify_role_id=role.id if role else None).to_json(),
+        )
+
+    def _publish_mention(self, config: AnonymousBoardConfig) -> tuple[str | None, discord.AllowedMentions]:
+        """Message content and mention policy for a public post.
+
+        Only the configured role can ever be pinged; the post text sits in an
+        embed and never pings anyone.
+        """
+        if config.notify_role_id is None:
+            return None, discord.AllowedMentions.none()
+        guild = self.bot.get_guild(self.guild_id)
+        if guild is None or guild.get_role(config.notify_role_id) is None:
+            self.logger.warning(
+                "Anonymous board notification role %s no longer exists; publishing without it",
+                config.notify_role_id,
+            )
+            return None, discord.AllowedMentions.none()
+        return f"<@&{config.notify_role_id}>", discord.AllowedMentions(
+            everyone=False,
+            users=False,
+            roles=[discord.Object(id=config.notify_role_id)],
+            replied_user=False,
+        )
 
     async def _resolve_text_channel(self, channel_id: int) -> discord.TextChannel:
         channel = self.bot.get_channel(channel_id)
@@ -777,8 +839,10 @@ class AnonymousBoardCog(
                     discord.File(io.BytesIO(data), filename=filename)
                     for (data, _), filename in zip(images, filenames)
                 ]
+            mention, allowed_mentions = self._publish_mention(config)
             try:
                 message = await channel.send(
+                    content=mention,
                     embeds=build_public_embeds(
                         post,
                         number=number,
@@ -787,7 +851,7 @@ class AnonymousBoardCog(
                         published_at=datetime.fromtimestamp(now, tz=UTC),
                     ),
                     view=AnonymousPanelView(),
-                    allowed_mentions=discord.AllowedMentions.none(),
+                    allowed_mentions=allowed_mentions,
                     **kwargs,
                 )
             except discord.HTTPException:
@@ -1095,6 +1159,11 @@ class AnonymousBoardCog(
                 value="需審核後才發布" if config.require_review else "投稿立即發布",
                 inline=True,
             )
+            embed.add_field(
+                name="發布通知",
+                value=f"<@&{config.notify_role_id}>" if config.notify_role_id else "未設定",
+                inline=True,
+            )
         embed.add_field(
             name=f"分類（{len(categories)}/{MAX_CATEGORIES}）",
             value="、".join(category.name for category in categories) or "（無）",
@@ -1111,6 +1180,30 @@ class AnonymousBoardCog(
             inline=True,
         )
         await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    @app_commands.command(name="notify", description="設定匿名版發布時要提及的身分組，不填則關閉通知")
+    @app_commands.describe(role="每則匿名貼文發布時要提及的身分組，不填則關閉")
+    @admin_only()
+    async def anon_notify(
+        self,
+        interaction: discord.Interaction,
+        role: discord.Role | None = None,
+    ) -> None:
+        await interaction.response.defer(ephemeral=True)
+        try:
+            await self.set_notify_role(role)
+        except ValueError as exc:
+            await interaction.followup.send(f"❌ {exc}", ephemeral=True)
+            return
+        if role is None:
+            message = "✅ 已關閉匿名版發布通知。"
+        else:
+            message = f"✅ 之後每則匿名貼文發布時都會提及 {role.mention}。"
+        await interaction.followup.send(
+            message,
+            ephemeral=True,
+            allowed_mentions=discord.AllowedMentions.none(),
+        )
 
     @app_commands.command(name="send_panel", description="將匿名投稿面板發送到目前頻道")
     @admin_only()

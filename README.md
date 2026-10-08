@@ -143,6 +143,8 @@ docker run --env-file .env school-discord-bot
 兩種倒數皆使用 [taiwan-exam-calendar 的 exams.json](https://raw.githubusercontent.com/AvianJay/taiwan-exam-calendar/refs/heads/main/data/exams.json)，只採用 `type=exam` 且 `exam=gsat`（學測）或 `exam=ast`（分科）的 `start_date`。每天台灣時間 00:00 及重啟、重新連線時重新抓取來源；既有頻道設定會沿用，舊的手動日期會自動改為來源日期。考試期間顯示 0 天，結束後若已有下一年度資料則自動切換，否則維持 0 天。成功抓取的考試資料快取於 SQLite；來源暫時無法連線或格式異常時沿用快取，沒有可用資料時保留既有頻道名稱並記錄錯誤。
 - /anon setup public_channel:文字頻道 review_channel:文字頻道 require_review:bool
   設定匿名版的匿名頻道（公開發布）、後台頻道（審核與紀錄，會顯示投稿者）與是否需要審核，`require_review` 預設為是。兩個頻道不能相同，後台頻道不能讓 @everyone 看到。首次設定會建立預設分類。再次執行可更換設定。
+- /anon notify role:身分組
+  設定匿名貼文發布時要提及的身分組（例如「匿名版通知」），每則貼文發布時只會 tag 這個身分組。不填 `role` 則關閉通知。身分組須開啟「允許任何人 @提及此身分組」，或機器人在匿名頻道有「提及 @everyone、@here 和所有身分組」權限；不能選 @everyone。重新執行 `/anon setup` 不會清掉這個設定。
 - /anon send_panel
   在目前頻道發送匿名投稿面板，按鈕在 bot 重啟後仍可使用。
 - /anon category add name / remove name / list
@@ -220,7 +222,7 @@ docker run --env-file .env school-discord-bot
 3. 每則投稿都會先送到後台頻道，附上投稿者身分與圖片：
    - 需要審核：後台出現「通過／拒絕」按鈕，通過後才發布到匿名頻道。
    - 不需審核：立即發布；若發布失敗，投稿會留在後台等待人工處理。
-4. 發布的貼文標題為「#編號 分類」（例如 `#12 😡 我要靠北`），並自動開一個討論串供留言。每則貼文下方也有「✍️ 匿名投稿」按鈕，不必回到面板就能投稿。編號在發布時才分配，被拒絕的投稿不佔編號。
+4. 發布的貼文標題為「#編號 分類」（例如 `#12 😡 我要靠北`），並自動開一個討論串供留言。每則貼文下方也有「✍️ 匿名投稿」按鈕，不必回到面板就能投稿。若有用 `/anon notify` 設定通知身分組，發布時會提及該身分組。編號在發布時才分配，被拒絕的投稿不佔編號。
 5. 已發布的貼文可在後台按「下架」，會連同討論串一起刪除。
 6. 通過、拒絕（可附理由）與下架都會私訊通知投稿者，私訊不會透露是哪位管理員處理的。
 

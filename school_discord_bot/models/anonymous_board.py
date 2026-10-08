@@ -115,6 +115,8 @@ class AnonymousBoardConfig:
     public_channel_id: int
     review_channel_id: int
     require_review: bool
+    # Role mentioned on every published post; None disables the notification.
+    notify_role_id: int | None = None
 
     def to_json(self) -> str:
         return json.dumps(asdict(self))
@@ -126,4 +128,6 @@ class AnonymousBoardConfig:
             public_channel_id=int(payload["public_channel_id"]),
             review_channel_id=int(payload["review_channel_id"]),
             require_review=bool(payload["require_review"]),
+            # Absent from settings saved before the notification existed.
+            notify_role_id=_optional_int(payload.get("notify_role_id")),
         )

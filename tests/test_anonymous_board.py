@@ -43,6 +43,7 @@ PUBLIC_ID = 100
 REVIEW_ID = 200
 AUTHOR_ID = 111111111111111111
 MODERATOR_ID = 222222222222222222
+ROLE_ID = 444444444444444444
 CATEGORY = AnonymousCategory(1, "😡 我要靠北")
 SECRET_FILENAME = "IMG_王小明_secret.jpg"
 
@@ -114,7 +115,11 @@ class FakeBot:
         self.dm = SimpleNamespace(send=AsyncMock())
         self.create_dm = AsyncMock(return_value=self.dm)
         self.fetch_channel = AsyncMock(side_effect=http_error(discord.NotFound, 404))
-        self.guild = SimpleNamespace(get_thread=lambda thread_id: self.threads.get(thread_id))
+        self.roles: dict[int, object] = {}
+        self.guild = SimpleNamespace(
+            get_thread=lambda thread_id: self.threads.get(thread_id),
+            get_role=lambda role_id: self.roles.get(role_id),
+        )
 
     def get_channel(self, channel_id: int) -> object:
         return self.channels.get(channel_id)
@@ -351,9 +356,17 @@ def test_status_changes_only_from_the_expected_state(tmp_path: Path) -> None:
 
 
 def test_config_round_trip() -> None:
-    config = AnonymousBoardConfig(PUBLIC_ID, REVIEW_ID, False)
-    assert AnonymousBoardConfig.from_json(config.to_json()) == config
+    for config in (
+        AnonymousBoardConfig(PUBLIC_ID, REVIEW_ID, False),
+        AnonymousBoardConfig(PUBLIC_ID, REVIEW_ID, True, notify_role_id=ROLE_ID),
+    ):
+        assert AnonymousBoardConfig.from_json(config.to_json()) == config
     assert setting_key(GUILD_ID) == "anon_board:456"
+
+
+def test_config_saved_before_notifications_still_loads() -> None:
+    legacy = json.dumps({"public_channel_id": PUBLIC_ID, "review_channel_id": REVIEW_ID, "require_review": True})
+    assert AnonymousBoardConfig.from_json(legacy) == AnonymousBoardConfig(PUBLIC_ID, REVIEW_ID, True, None)
 
 
 # ---------------------------------------------------------------------------
@@ -633,6 +646,7 @@ def test_auto_mode_publishes_without_revealing_the_author(tmp_path: Path) -> Non
             assert embeds[0].title == "#1 😡 我要靠北"
             assert [file.filename for file in files] == ["anon_1_1.jpg"]
             assert [child.item.custom_id for child in kwargs["view"].children] == ["anon:submit"]
+            assert kwargs["content"] is None  # no notification role configured
             assert kwargs["allowed_mentions"].to_dict() == discord.AllowedMentions.none().to_dict()
             with Image.open(files[0].fp) as image:
                 assert dict(image.getexif()) == {}
@@ -1012,6 +1026,146 @@ def test_setup_command_reports_privately(tmp_path: Path) -> None:
     asyncio.run(run())
 
 
+# ---------------------------------------------------------------------------
+# Publish notification role
+# ---------------------------------------------------------------------------
+
+
+def make_role(*, mentionable: bool = True, default: bool = False, guild_id: int = GUILD_ID) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=GUILD_ID if default else ROLE_ID,
+        name="匿名版通知",
+        mention=f"<@&{ROLE_ID}>",
+        mentionable=mentionable,
+        is_default=lambda: default,
+        guild=SimpleNamespace(id=guild_id, me=SimpleNamespace(guild_permissions=discord.Permissions())),
+    )
+
+
+def test_published_post_mentions_only_the_notify_role(tmp_path: Path) -> None:
+    async def run() -> None:
+        board = await make_board(tmp_path, require_review=False)
+        role = make_role()
+        board.bot.roles[ROLE_ID] = role
+        try:
+            await board.cog.set_notify_role(role)
+            await submit(board)
+
+            kwargs = board.public.send.await_args.kwargs
+            assert kwargs["content"] == f"<@&{ROLE_ID}>"
+            allowed = kwargs["allowed_mentions"]
+            assert allowed.everyone is False and allowed.users is False
+            assert [mentioned.id for mentioned in allowed.roles] == [ROLE_ID]
+            # The submitted text still cannot ping anyone, and the staff card never pings.
+            assert "@​everyone" in kwargs["embeds"][0].description
+            review_allowed = board.review.send.await_args.kwargs["allowed_mentions"]
+            assert review_allowed.to_dict() == discord.AllowedMentions.none().to_dict()
+        finally:
+            await board.database.close()
+
+    asyncio.run(run())
+
+
+def test_deleted_notify_role_is_skipped(tmp_path: Path) -> None:
+    async def run() -> None:
+        board = await make_board(tmp_path, require_review=False)
+        try:
+            await board.cog.set_notify_role(make_role())  # never added to the guild's role cache
+            await submit(board)
+            kwargs = board.public.send.await_args.kwargs
+            assert kwargs["content"] is None
+            assert kwargs["allowed_mentions"].to_dict() == discord.AllowedMentions.none().to_dict()
+            assert (await board.database.get_anonymous_post(1)).status is PostStatus.PUBLISHED
+        finally:
+            await board.database.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("problem", ["unconfigured", "default", "guild", "unmentionable"])
+def test_notify_role_validation(tmp_path: Path, problem: str) -> None:
+    async def run() -> None:
+        board = await make_board(tmp_path, configured=problem != "unconfigured")
+        try:
+            role = make_role(
+                default=problem == "default",
+                guild_id=999 if problem == "guild" else GUILD_ID,
+                mentionable=problem != "unmentionable",
+            )
+            expected = {
+                "unconfigured": "/anon setup",
+                "default": "@everyone",
+                "guild": "此伺服器",
+                "unmentionable": "不允許被提及",
+            }[problem]
+            with pytest.raises(ValueError, match=expected):
+                await board.cog.set_notify_role(role)
+            config = await board.cog.get_config()
+            assert config is None or config.notify_role_id is None
+        finally:
+            await board.database.close()
+
+    asyncio.run(run())
+
+
+def test_unmentionable_role_is_allowed_when_bot_can_mention_all_roles(tmp_path: Path) -> None:
+    async def run() -> None:
+        board = await make_board(tmp_path)
+        board.bot.channels[PUBLIC_ID] = make_text_channel(
+            PUBLIC_ID,
+            bot_permissions=discord.Permissions(view_channel=True, send_messages=True, mention_everyone=True),
+        )
+        try:
+            await board.cog.set_notify_role(make_role(mentionable=False))
+            assert (await board.cog.get_config()).notify_role_id == ROLE_ID
+        finally:
+            await board.database.close()
+
+    asyncio.run(run())
+
+
+def test_notify_role_survives_setup_and_can_be_cleared(tmp_path: Path) -> None:
+    async def run() -> None:
+        board = await make_board(tmp_path)
+        try:
+            await board.cog.set_notify_role(make_role())
+            await board.cog.configure(board.public, board.review, require_review=False)
+            assert await board.cog.get_config() == AnonymousBoardConfig(PUBLIC_ID, REVIEW_ID, False, ROLE_ID)
+
+            await board.cog.set_notify_role(None)
+            assert await board.cog.get_config() == AnonymousBoardConfig(PUBLIC_ID, REVIEW_ID, False, None)
+        finally:
+            await board.database.close()
+
+    asyncio.run(run())
+
+
+def test_notify_command_reports_privately_without_pinging(tmp_path: Path) -> None:
+    async def run() -> None:
+        board = await make_board(tmp_path)
+        notify = AnonymousBoardCog.anon_notify.callback
+        try:
+            interaction = make_interaction()
+            await notify(board.cog, interaction, make_role())
+            assert f"<@&{ROLE_ID}>" in last_reply(interaction)
+            sent = interaction.followup.send.await_args.kwargs["allowed_mentions"]
+            assert sent.to_dict() == discord.AllowedMentions.none().to_dict()
+            assert_private(interaction)
+
+            interaction = make_interaction()
+            await notify(board.cog, interaction, None)
+            assert "已關閉" in last_reply(interaction)
+
+            interaction = make_interaction()
+            await notify(board.cog, interaction, make_role(default=True))
+            assert last_reply(interaction).startswith("❌")
+            assert_private(interaction)
+        finally:
+            await board.database.close()
+
+    asyncio.run(run())
+
+
 def test_category_add_normalises_and_enforces_limits(tmp_path: Path) -> None:
     async def run() -> None:
         board = await make_board(tmp_path, categories=())
@@ -1044,7 +1198,7 @@ def test_every_anon_command_is_admin_only() -> None:
         assert group.guild_only
         commands = [cmd for cmd in group.walk_commands() if isinstance(cmd, discord.app_commands.Command)]
         assert {cmd.qualified_name for cmd in commands} == {
-            "anon setup", "anon status", "anon send_panel",
+            "anon setup", "anon status", "anon notify", "anon send_panel",
             "anon category add", "anon category remove", "anon category list",
         }
         student = SimpleNamespace(user=SimpleNamespace(guild_permissions=discord.Permissions()))

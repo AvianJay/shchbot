@@ -99,6 +99,7 @@ class AdminCog(
         embed.add_field(name="/school countdown <channel>", value="設定學測倒數語音頻道，日期自動取得，每天台灣時間 00:00 更新", inline=False)
         embed.add_field(name="/school subject_countdown [channel]", value="設定分科倒數，日期自動取得，未指定頻道時新增語音頻道", inline=False)
         embed.add_field(name="/anon setup <public_channel> <review_channel> [require_review]", value="設定匿名版的匿名頻道、後台頻道與是否需要審核", inline=False)
+        embed.add_field(name="/anon notify [role]", value="設定匿名貼文發布時要提及的身分組，不填則關閉", inline=False)
         embed.add_field(name="/anon send_panel", value="將匿名投稿面板發送到頻道", inline=False)
         embed.add_field(name="/anon category add / remove / list", value="管理匿名版分類", inline=False)
         embed.add_field(name="/anon status", value="查看匿名版設定與待審核數量", inline=False)
