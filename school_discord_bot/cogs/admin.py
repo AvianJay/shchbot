@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 
 from school_discord_bot.cogs.announcements import admin_only
-from school_discord_bot.cogs.countdown import CountdownCog, ExamType, parse_exam_date
+from school_discord_bot.cogs.countdown import CountdownCog
 from school_discord_bot.cogs.curriculum import CurriculumCog
 from school_discord_bot.cogs.school_links import SchoolLinksView, build_school_links_embed
 from school_discord_bot.cogs.verification import VerificationCog
@@ -96,8 +96,8 @@ class AdminCog(
         embed.add_field(name="/school links", value="顯示學校常用公開入口", inline=False)
         embed.add_field(name="/school send_links", value="將學校常用公開連結發送到頻道", inline=False)
         embed.add_field(name="/school send_curriculum", value="將班級課表查詢面板發送到頻道", inline=False)
-        embed.add_field(name="/school countdown <channel> <exam_date>", value="設定學測倒數語音頻道及日期，每天台灣時間 00:00 更新", inline=False)
-        embed.add_field(name="/school subject_countdown <exam_date> [channel]", value="設定分科倒數，未指定頻道時新增語音頻道，每天台灣時間 00:00 更新", inline=False)
+        embed.add_field(name="/school countdown <channel>", value="設定學測倒數語音頻道，日期自動取得，每天台灣時間 00:00 更新", inline=False)
+        embed.add_field(name="/school subject_countdown [channel]", value="設定分科倒數，日期自動取得，未指定頻道時新增語音頻道", inline=False)
         embed.add_field(name="/anon setup <public_channel> <review_channel> [require_review]", value="設定匿名版的匿名頻道、後台頻道與是否需要審核", inline=False)
         embed.add_field(name="/anon send_panel", value="將匿名投稿面板發送到頻道", inline=False)
         embed.add_field(name="/anon category add / remove / list", value="管理匿名版分類", inline=False)
@@ -113,14 +113,13 @@ class AdminCog(
         await interaction.response.send_message(embed=embed, ephemeral=True)
 
     @app_commands.command(name="countdown", description="設定學測倒數語音頻道，每天台灣時間 00:00 更新名稱")
-    @app_commands.describe(channel="顯示學測倒數的語音頻道", exam_date="學測第一天的日期，格式 YYYY-MM-DD")
+    @app_commands.describe(channel="顯示學測倒數的語音頻道")
     @app_commands.guild_only()
     @admin_only()
     async def school_countdown(
         self,
         interaction: discord.Interaction,
         channel: discord.VoiceChannel,
-        exam_date: str,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
         cog = self.bot.get_cog("CountdownCog")
@@ -128,8 +127,7 @@ class AdminCog(
             await interaction.followup.send("❌ 學測倒數模組尚未載入", ephemeral=True)
             return
         try:
-            target_date = parse_exam_date(exam_date)
-            name = await cog.configure(channel, target_date)
+            name, target_date = await cog.configure(channel)
         except ValueError as exc:
             await interaction.followup.send(f"❌ {exc}", ephemeral=True)
             return
@@ -150,7 +148,6 @@ class AdminCog(
 
     @app_commands.command(name="subject_countdown", description="設定分科倒數，每天台灣時間 00:00 更新，可新增語音頻道")
     @app_commands.describe(
-        exam_date="分科測驗第一天的日期，格式 YYYY-MM-DD",
         channel="顯示分科倒數的語音頻道，不填則新增頻道",
     )
     @app_commands.guild_only()
@@ -158,7 +155,6 @@ class AdminCog(
     async def school_subject_countdown(
         self,
         interaction: discord.Interaction,
-        exam_date: str,
         channel: discord.VoiceChannel | None = None,
     ) -> None:
         await interaction.response.defer(ephemeral=True)
@@ -170,8 +166,7 @@ class AdminCog(
             await interaction.followup.send("❌ 請在伺服器內使用此指令。", ephemeral=True)
             return
         try:
-            target_date = parse_exam_date(exam_date, exam_type=ExamType.SUBJECT)
-            channel, name = await cog.configure_subject(interaction.guild, target_date, channel)
+            channel, name, target_date = await cog.configure_subject(interaction.guild, channel)
         except ValueError as exc:
             await interaction.followup.send(f"❌ {exc}", ephemeral=True)
             return

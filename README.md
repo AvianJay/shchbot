@@ -135,10 +135,12 @@ docker run --env-file .env school-discord-bot
 
 - /school setup
   驗證 guild、forum channel、bot 權限、資料庫與 scraper 狀態。
-- /school countdown channel:語音頻道 exam_date:YYYY-MM-DD
-  設定學測倒數的語音頻道及學測第一天日期。設定後立即更名為「學測倒數 {day} 天」，之後每天台灣時間（UTC+8）00:00 更新。設定保存於 SQLite，重啟或重新連線時會補更新；考試當天及之後顯示 0 天。再次執行可更換頻道或日期。此指令限具有「管理伺服器」或「管理頻道」權限的管理員使用。
-- /school subject_countdown exam_date:YYYY-MM-DD channel:語音頻道（選填）
-  設定分科測驗第一天日期，名稱為「分科倒數 {day} 天」。未指定 channel 時，bot 會新增一個語音頻道；也可指定現有語音頻道。學測與分科必須使用不同頻道，設定獨立保存；兩者皆每天台灣時間 00:00 更新，重啟或重新連線時補更新，考試當天及之後顯示 0 天。管理員權限要求與學測倒數相同。
+- /school countdown channel:語音頻道
+  設定學測倒數的語音頻道，日期自動從考試日曆取得，不需手動填寫。設定後立即更名為「學測倒數 {day} 天」，之後每天台灣時間（UTC+8）00:00 更新。此指令限具有「管理伺服器」或「管理頻道」權限的管理員使用。
+- /school subject_countdown channel:語音頻道（選填）
+  日期自動從考試日曆取得，名稱為「分科倒數 {day} 天」。未指定 channel 時，bot 會新增一個語音頻道；也可指定現有語音頻道。學測與分科必須使用不同頻道，設定獨立保存；管理員權限要求與學測倒數相同。
+
+兩種倒數皆使用 [taiwan-exam-calendar 的 exams.json](https://raw.githubusercontent.com/AvianJay/taiwan-exam-calendar/refs/heads/main/data/exams.json)，只採用 `type=exam` 且 `exam=gsat`（學測）或 `exam=ast`（分科）的 `start_date`。每天台灣時間 00:00 及重啟、重新連線時重新抓取來源；既有頻道設定會沿用，舊的手動日期會自動改為來源日期。考試期間顯示 0 天，結束後若已有下一年度資料則自動切換，否則維持 0 天。成功抓取的考試資料快取於 SQLite；來源暫時無法連線或格式異常時沿用快取，沒有可用資料時保留既有頻道名稱並記錄錯誤。
 - /anon setup public_channel:文字頻道 review_channel:文字頻道 require_review:bool
   設定匿名版的匿名頻道（公開發布）、後台頻道（審核與紀錄，會顯示投稿者）與是否需要審核，`require_review` 預設為是。兩個頻道不能相同，後台頻道不能讓 @everyone 看到。首次設定會建立預設分類。再次執行可更換設定。
 - /anon send_panel

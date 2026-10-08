@@ -23,6 +23,7 @@ from school_discord_bot.db.database import Database
 from school_discord_bot.services.command_translator import CommandTranslator
 from school_discord_bot.services.curriculum_client import CurriculumClient
 from school_discord_bot.services.email_service import EmailService
+from school_discord_bot.services.exam_calendar_client import ExamCalendarClient
 from school_discord_bot.services.forum_poster import ForumPoster
 from school_discord_bot.services.school_news_client import SchoolNewsClient
 from school_discord_bot.services.tag_mapper import TagMapper
@@ -84,7 +85,17 @@ class SchoolDiscordBot(commands.Bot):
         await self.add_cog(announcements_cog)
 
         await self.add_cog(
-            CountdownCog(self, database=self.database, guild_id=self.settings.guild_id)
+            CountdownCog(
+                self,
+                database=self.database,
+                guild_id=self.settings.guild_id,
+                calendar_client=ExamCalendarClient(
+                    self.http_session,
+                    database=self.database,
+                    timeout_seconds=self.settings.http_timeout_seconds,
+                    user_agent=self.settings.user_agent,
+                ),
+            )
         )
 
         curriculum_cog = CurriculumCog(
